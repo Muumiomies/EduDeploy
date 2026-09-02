@@ -1,0 +1,23 @@
+# Windows
+Thumbs.db
+Desktop.ini
+
+# PowerShell
+*.log
+
+# VS Code
+.vscode/
+
+# Visual Studio
+.vs/
+
+# Build/output
+bin/
+obj/
+
+# Temporary files
+*.tmp
+*.temp
+
+# EduDeploy temporary files
+EduDeploy-temp/
