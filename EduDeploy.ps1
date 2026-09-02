@@ -5,10 +5,10 @@ Add-Type -AssemblyName WindowsBase
 $ErrorActionPreference = "Stop"
 
 # ==========================================
-# EduDeploy v0.2
+# EduDeploy v0.3
 # ==========================================
 
-$Version = "0.2"
+$Version = "0.3"
 
 # ==========================================
 # Load configuration
@@ -36,6 +36,192 @@ catch {
 }
 
 # ==========================================
+# General application installer
+# ==========================================
+
+function Install-Application {
+    param (
+        [Parameter(Mandatory = $true)]
+        $App
+    )
+
+    $TempDir = Join-Path $env:TEMP "EduDeploy"
+
+    if (-not (Test-Path $TempDir)) {
+        New-Item `
+            -ItemType Directory `
+            -Path $TempDir `
+            -Force | Out-Null
+    }
+
+    # ==========================================
+    # Website installer
+    # ==========================================
+
+    if ($App.installerType -eq "website") {
+
+        if ([string]::IsNullOrWhiteSpace($App.website)) {
+            throw "Ohjelmalle ei ole määritetty verkkosivua."
+        }
+
+        Start-Process $App.website
+
+        return @{
+            Type = "website"
+            Success = $true
+        }
+    }
+
+    # ==========================================
+    # Download installer
+    # ==========================================
+
+    if ([string]::IsNullOrWhiteSpace($App.downloadUrl)) {
+        throw "Ohjelmalle ei ole määritetty downloadUrl-arvoa."
+    }
+
+    $Extension = ".bin"
+
+    switch ($App.installerType.ToLower()) {
+
+        "msi" {
+            $Extension = ".msi"
+        }
+
+        "exe" {
+            $Extension = ".exe"
+        }
+
+        default {
+            throw "Tuntematon installerType: $($App.installerType)"
+        }
+    }
+
+    # Create safe filename
+    $SafeName = $App.name -replace '[^a-zA-Z0-9_-]', '_'
+
+    $InstallerPath = Join-Path `
+        $TempDir `
+        "$SafeName$Extension"
+
+    $LogPath = Join-Path `
+        $TempDir `
+        "$SafeName-install.log"
+
+    # ==========================================
+    # Clean old files
+    # ==========================================
+
+    if (Test-Path $InstallerPath) {
+        Remove-Item $InstallerPath -Force
+    }
+
+    if (Test-Path $LogPath) {
+        Remove-Item $LogPath -Force
+    }
+
+    # ==========================================
+    # Download
+    # ==========================================
+
+    Invoke-WebRequest `
+        -Uri $App.downloadUrl `
+        -OutFile $InstallerPath
+
+    if (-not (Test-Path $InstallerPath)) {
+        throw "$($App.name): lataus epäonnistui."
+    }
+
+    # Check file size
+    $FileSize = (Get-Item $InstallerPath).Length
+
+    if ($FileSize -lt 10KB) {
+        throw "$($App.name): ladattu tiedosto näyttää liian pieneltä."
+    }
+
+    # ==========================================
+    # MSI
+    # ==========================================
+
+    if ($App.installerType.ToLower() -eq "msi") {
+
+        $Arguments = "/i `"$InstallerPath`""
+
+        if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+            $Arguments += " $($App.installerArguments)"
+        }
+
+        $Arguments += " /L*v `"$LogPath`""
+
+        $Process = Start-Process `
+            -FilePath "msiexec.exe" `
+            -ArgumentList $Arguments `
+            -WorkingDirectory $TempDir `
+            -Verb RunAs `
+            -Wait `
+            -PassThru
+
+        if ($Process.ExitCode -eq 0) {
+
+            return @{
+                Type = "installer"
+                Success = $true
+                ExitCode = $Process.ExitCode
+                InstallerPath = $InstallerPath
+                LogPath = $LogPath
+            }
+        }
+
+        if ($Process.ExitCode -eq 3010) {
+
+            return @{
+                Type = "installer"
+                Success = $true
+                RestartRequired = $true
+                ExitCode = $Process.ExitCode
+                InstallerPath = $InstallerPath
+                LogPath = $LogPath
+            }
+        }
+
+        throw "$($App.name): MSI-asennus epäonnistui.`n`nPalautuskoodi: $($Process.ExitCode)`n`nLokitiedosto:`n$LogPath"
+    }
+
+    # ==========================================
+    # EXE
+    # ==========================================
+
+    if ($App.installerType.ToLower() -eq "exe") {
+
+        $Arguments = ""
+
+        if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+            $Arguments = $App.installerArguments
+        }
+
+        $Process = Start-Process `
+            -FilePath $InstallerPath `
+            -ArgumentList $Arguments `
+            -WorkingDirectory $TempDir `
+            -Verb RunAs `
+            -Wait `
+            -PassThru
+
+        if ($Process.ExitCode -eq 0) {
+
+            return @{
+                Type = "installer"
+                Success = $true
+                ExitCode = $Process.ExitCode
+                InstallerPath = $InstallerPath
+            }
+        }
+
+        throw "$($App.name): EXE-asennus epäonnistui.`n`nPalautuskoodi: $($Process.ExitCode)"
+    }
+}
+
+# ==========================================
 # Main Window
 # ==========================================
 
@@ -55,11 +241,9 @@ $Window.Background = "#F5F5F5"
 
 $MainGrid = New-Object System.Windows.Controls.Grid
 
-# Sidebar
 $SidebarColumn = New-Object System.Windows.Controls.ColumnDefinition
 $SidebarColumn.Width = "230"
 
-# Content
 $ContentColumn = New-Object System.Windows.Controls.ColumnDefinition
 $ContentColumn.Width = "*"
 
@@ -74,8 +258,6 @@ $Sidebar = New-Object System.Windows.Controls.StackPanel
 $Sidebar.Margin = "20"
 
 [System.Windows.Controls.Grid]::SetColumn($Sidebar, 0)
-
-# Logo / title
 
 $Logo = New-Object System.Windows.Controls.TextBlock
 $Logo.Text = "EduDeploy"
@@ -93,8 +275,6 @@ $Subtitle.Margin = "0,2,0,35"
 
 $Sidebar.Children.Add($Subtitle)
 
-# Navigation title
-
 $NavigationTitle = New-Object System.Windows.Controls.TextBlock
 $NavigationTitle.Text = "KATEGORIAT"
 $NavigationTitle.FontSize = 11
@@ -104,7 +284,9 @@ $NavigationTitle.Margin = "0,0,0,10"
 
 $Sidebar.Children.Add($NavigationTitle)
 
-# Buttons
+# ==========================================
+# Navigation buttons
+# ==========================================
 
 $AllButton = New-Object System.Windows.Controls.Button
 $AllButton.Content = "Kaikki ohjelmat"
@@ -131,7 +313,9 @@ $Sidebar.Children.Add($AllButton)
 $Sidebar.Children.Add($ThreeDButton)
 $Sidebar.Children.Add($CadButton)
 
-# Bottom version
+# ==========================================
+# Version
+# ==========================================
 
 $VersionText = New-Object System.Windows.Controls.TextBlock
 $VersionText.Text = "EduDeploy v$Version"
@@ -141,15 +325,13 @@ $VersionText.Margin = "0,35,0,0"
 $Sidebar.Children.Add($VersionText)
 
 # ==========================================
-# Content area
+# Content
 # ==========================================
 
 $Content = New-Object System.Windows.Controls.StackPanel
 $Content.Margin = "30"
 
 [System.Windows.Controls.Grid]::SetColumn($Content, 1)
-
-# Header
 
 $Header = New-Object System.Windows.Controls.TextBlock
 $Header.Text = "3D-ohjelmistot"
@@ -165,10 +347,6 @@ $DescriptionHeader.Foreground = "#666666"
 $DescriptionHeader.Margin = "0,0,0,25"
 
 $Content.Children.Add($DescriptionHeader)
-
-# ==========================================
-# Application container
-# ==========================================
 
 $AppPanel = New-Object System.Windows.Controls.StackPanel
 
@@ -191,7 +369,10 @@ function Show-Applications {
             continue
         }
 
+        # ==========================================
         # Card
+        # ==========================================
+
         $Card = New-Object System.Windows.Controls.Border
         $Card.Background = "White"
         $Card.BorderBrush = "#DDDDDD"
@@ -199,7 +380,6 @@ function Show-Applications {
         $Card.Padding = "18"
         $Card.Margin = "0,0,0,12"
 
-        # Card grid
         $CardGrid = New-Object System.Windows.Controls.Grid
 
         $InfoColumn = New-Object System.Windows.Controls.ColumnDefinition
@@ -211,7 +391,9 @@ function Show-Applications {
         $CardGrid.ColumnDefinitions.Add($InfoColumn)
         $CardGrid.ColumnDefinitions.Add($ButtonColumn)
 
-        # Information
+        # ==========================================
+        # Application information
+        # ==========================================
 
         $Info = New-Object System.Windows.Controls.StackPanel
 
@@ -225,8 +407,15 @@ function Show-Applications {
         $AppDescription.Foreground = "#666666"
         $AppDescription.Margin = "0,5,0,0"
 
+        $VersionInfo = New-Object System.Windows.Controls.TextBlock
+        $VersionInfo.Text = "Versio: $($App.version)"
+        $VersionInfo.Foreground = "#888888"
+        $VersionInfo.FontSize = 12
+        $VersionInfo.Margin = "0,6,0,0"
+
         $Info.Children.Add($Name)
         $Info.Children.Add($AppDescription)
+        $Info.Children.Add($VersionInfo)
 
         [System.Windows.Controls.Grid]::SetColumn($Info, 0)
 
@@ -235,140 +424,75 @@ function Show-Applications {
         # ==========================================
 
         $InstallButton = New-Object System.Windows.Controls.Button
-        $InstallButton.Content = "ASENNA"
+
+        if ($App.installerType -eq "website") {
+            $InstallButton.Content = "LATAUSSIVU"
+        }
+        else {
+            $InstallButton.Content = "ASENNA"
+        }
+
         $InstallButton.Width = 100
         $InstallButton.Height = 38
         $InstallButton.VerticalAlignment = "Center"
         $InstallButton.HorizontalAlignment = "Right"
 
+        $CurrentApp = $App
+        $CurrentButton = $InstallButton
+
         $InstallButton.Add_Click({
 
-            $ApplicationName = $App.name
+            try {
 
-            # ==========================================
-            # Blender
-            # ==========================================
+                $CurrentButton.IsEnabled = $false
 
-            if ($ApplicationName -eq "Blender") {
+                if ($CurrentApp.installerType -eq "website") {
 
-                try {
+                    $CurrentButton.Content = "AVATAAN..."
 
-                    $InstallButton.Content = "LADATAAN..."
-                    $InstallButton.IsEnabled = $false
+                    $Result = Install-Application -App $CurrentApp
 
-                    # Temp-kansio
-                    $TempDir = Join-Path $env:TEMP "EduDeploy"
+                    $CurrentButton.Content = "LATAUSSIVU"
+                    $CurrentButton.IsEnabled = $true
 
-                    if (-not (Test-Path $TempDir)) {
-                        New-Item `
-                            -ItemType Directory `
-                            -Path $TempDir `
-                            -Force | Out-Null
-                    }
+                }
+                else {
 
-                    # MSI-tiedosto
-                    $InstallerPath = Join-Path $TempDir "blender.msi"
+                    $CurrentButton.Content = "LADATAAN..."
 
-                    # MSI-loki
-                    $LogPath = Join-Path $TempDir "blender-install.log"
+                    $Result = Install-Application -App $CurrentApp
 
-                    # Poistetaan vanhat tiedostot
-                    if (Test-Path $InstallerPath) {
-                        Remove-Item $InstallerPath -Force
-                    }
+                    if ($Result.RestartRequired) {
 
-                    if (Test-Path $LogPath) {
-                        Remove-Item $LogPath -Force
-                    }
-
-                    # ==========================================
-                    # Download
-                    # ==========================================
-
-                    Invoke-WebRequest `
-                        -Uri $App.downloadUrl `
-                        -OutFile $InstallerPath
-
-                    # Tarkista että tiedosto löytyy
-                    if (-not (Test-Path $InstallerPath)) {
-                        throw "Blenderin lataus epäonnistui."
-                    }
-
-                    # Tarkista MSI:n koko
-                    $FileSize = (Get-Item $InstallerPath).Length
-
-                    if ($FileSize -lt 10MB) {
-                        throw "Blenderin MSI-tiedosto näyttää liian pieneltä. Lataus saattaa olla epäonnistunut."
-                    }
-
-                    # ==========================================
-                    # Install
-                    # ==========================================
-
-                    $InstallButton.Content = "ASENNETAAN..."
-
-                    $Process = Start-Process `
-                        -FilePath "msiexec.exe" `
-                        -ArgumentList "/i `"$InstallerPath`" /qn /norestart /L*v `"$LogPath`"" `
-                        -WorkingDirectory $TempDir `
-                        -Verb RunAs `
-                        -Wait `
-                        -PassThru
-
-                    # ==========================================
-                    # Result
-                    # ==========================================
-
-                    if ($Process.ExitCode -eq 0) {
-
-                        $InstallButton.Content = "ASENNETTU"
+                        $CurrentButton.Content = "ASENNETTU"
 
                         [System.Windows.MessageBox]::Show(
-                            "Blender asennettiin onnistuneesti.",
-                            "EduDeploy v$Version"
-                        )
-
-                    }
-                    elseif ($Process.ExitCode -eq 3010) {
-
-                        $InstallButton.Content = "ASENNETTU"
-
-                        [System.Windows.MessageBox]::Show(
-                            "Blender asennettiin onnistuneesti.`n`nWindowsin uudelleenkäynnistys voidaan tarvita.",
+                            "$($CurrentApp.name) asennettiin onnistuneesti.`n`nWindowsin uudelleenkäynnistys voidaan tarvita.",
                             "EduDeploy v$Version"
                         )
 
                     }
                     else {
 
-                        throw "Asennus epäonnistui.`n`nMSI-palautuskoodi: $($Process.ExitCode)`n`nLokitiedosto:`n$LogPath"
+                        $CurrentButton.Content = "ASENNETTU"
+
+                        [System.Windows.MessageBox]::Show(
+                            "$($CurrentApp.name) asennettiin onnistuneesti.",
+                            "EduDeploy v$Version"
+                        )
                     }
-
-                }
-                catch {
-
-                    $InstallButton.Content = "ASENNA"
-                    $InstallButton.IsEnabled = $true
-
-                    [System.Windows.MessageBox]::Show(
-                        "Blenderin asennus epäonnistui.`n`n$($_.Exception.Message)",
-                        "EduDeploy v$Version"
-                    )
                 }
 
             }
+            catch {
 
-            # ==========================================
-            # Other applications
-            # ==========================================
-
-            else {
+                $CurrentButton.Content = "ASENNA"
+                $CurrentButton.IsEnabled = $true
 
                 [System.Windows.MessageBox]::Show(
-                    "Asennus testitilassa.`n`nOhjelma: $ApplicationName",
+                    "$($CurrentApp.name) asennus epäonnistui.`n`n$($_.Exception.Message)",
                     "EduDeploy v$Version"
                 )
-
             }
 
         }.GetNewClosure())

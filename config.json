@@ -17,7 +17,7 @@
       "version": "2026",
       "downloadUrl": "https://www.autodesk.com/products/fusion-360/",
       "website": "https://www.autodesk.com/products/fusion-360/",
-      "publisher": "Autodesk",
+      "installerType": "website",
       "installedCheck": "Fusion360.exe"
     },
     {
@@ -27,7 +27,7 @@
       "version": "8",
       "downloadUrl": "https://www.rhino3d.com/download/",
       "website": "https://www.rhino3d.com/",
-      "publisher": "McNeel",
+      "installerType": "website",
       "installedCheck": "Rhino.exe"
     },
     {
@@ -37,7 +37,7 @@
       "version": "2026",
       "downloadUrl": "https://www.solidworks.com/",
       "website": "https://www.solidworks.com/",
-      "publisher": "Dassault Systèmes",
+      "installerType": "website",
       "installedCheck": "SLDWORKS.exe"
     }
   ]
