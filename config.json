@@ -8,37 +8,211 @@
       "downloadUrl": "https://download.blender.org/release/Blender4.5/blender-4.5.13-windows-x64.msi",
       "installerType": "msi",
       "installerArguments": "/qn /norestart",
-      "installedCheck": "blender.exe"
-    },
-    {
-      "name": "Autodesk Fusion",
-      "description": "CAD design and 3D modeling",
-      "category": "CAD",
-      "version": "2026",
-      "downloadUrl": "https://www.autodesk.com/products/fusion-360/",
-      "website": "https://www.autodesk.com/products/fusion-360/",
-      "installerType": "website",
-      "installedCheck": "Fusion360.exe"
+      "installedCheck": "Blender"
     },
     {
       "name": "Rhino",
       "description": "3D modeling, design and visualization",
       "category": "3D",
       "version": "8",
-      "downloadUrl": "https://www.rhino3d.com/download/",
-      "website": "https://www.rhino3d.com/",
+      "downloadUrl": "https://www.rhino3d.com/download/rhino-for-windows/",
+      "website": "https://www.rhino3d.com/download/rhino-for-windows/",
       "installerType": "website",
       "installedCheck": "Rhino.exe"
     },
     {
-      "name": "SolidWorks",
-      "description": "3D CAD design and engineering",
+      "name": "SketchUp",
+      "description": "3D modeling and architectural design",
+      "category": "Architecture",
+      "version": "2026",
+      "downloadUrl": "https://www.sketchup.com/en/download/all",
+      "website": "https://www.sketchup.com/en/download/all",
+      "installerType": "website",
+      "installedCheck": "SketchUp.exe"
+    },
+    {
+      "name": "Autodesk Fusion",
+      "description": "3D CAD, CAM, CAE and electronics design",
       "category": "CAD",
       "version": "2026",
-      "downloadUrl": "https://www.solidworks.com/",
-      "website": "https://www.solidworks.com/",
+      "downloadUrl": "https://www.autodesk.com/education/edu-software/fusion",
+      "website": "https://www.autodesk.com/education/edu-software/fusion",
       "installerType": "website",
-      "installedCheck": "SLDWORKS.exe"
+      "installedCheck": "Fusion360.exe"
+    },
+    {
+      "name": "AutoCAD",
+      "description": "2D and 3D computer-aided design",
+      "category": "CAD",
+      "version": "2026",
+      "downloadUrl": "https://www.autodesk.com/education/edu-software/overview",
+      "website": "https://www.autodesk.com/education/edu-software/overview",
+      "installerType": "website",
+      "installedCheck": "acad.exe"
+    },
+    {
+      "name": "Autodesk Inventor",
+      "description": "3D mechanical design and engineering",
+      "category": "CAD",
+      "version": "2026",
+      "downloadUrl": "https://www.autodesk.com/education/edu-software/overview",
+      "website": "https://www.autodesk.com/education/edu-software/overview",
+      "installerType": "website",
+      "installedCheck": "Inventor.exe"
+    },
+    {
+      "name": "Autodesk Revit",
+      "description": "Building Information Modeling for architecture, engineering and construction",
+      "category": "BIM",
+      "version": "2026",
+      "downloadUrl": "https://www.autodesk.com/education/edu-software/revit",
+      "website": "https://www.autodesk.com/education/edu-software/revit",
+      "installerType": "website",
+      "installedCheck": "Revit.exe"
+    },
+    {
+      "name": "Autodesk Navisworks",
+      "description": "Project review and coordination for construction and engineering",
+      "category": "BIM",
+      "version": "2026",
+      "downloadUrl": "https://www.autodesk.com/education/edu-software/overview",
+      "website": "https://www.autodesk.com/education/edu-software/overview",
+      "installerType": "website",
+      "installedCheck": "roamer.exe"
+    },
+    {
+      "name": "Tekla Structures",
+      "description": "BIM software for structural design and construction",
+      "category": "Construction",
+      "version": "2026",
+      "downloadUrl": "https://support.tekla.com/",
+      "website": "https://support.tekla.com/",
+      "installerType": "website",
+      "installedCheck": "TeklaStructures.exe"
+    },
+    {
+      "name": "Solibri",
+      "description": "BIM model checking, coordination and quality assurance",
+      "category": "BIM",
+      "version": "Latest",
+      "downloadUrl": "https://www.solibri.com/download",
+      "website": "https://www.solibri.com/download",
+      "installerType": "website",
+      "installedCheck": "Solibri.exe"
+    },
+    {
+      "name": "Twinmotion",
+      "description": "Real-time visualization and architectural rendering",
+      "category": "Architecture",
+      "version": "Latest",
+      "downloadUrl": "https://www.twinmotion.com/download",
+      "website": "https://www.twinmotion.com/download",
+      "installerType": "website",
+      "installedCheck": "Twinmotion.exe"
+    },
+    {
+      "name": "EPLAN Electric P8",
+      "description": "Electrical engineering and schematic design",
+      "category": "Electrical",
+      "version": "Latest",
+      "downloadUrl": "https://www.eplan.com/",
+      "website": "https://www.eplan.com/",
+      "installerType": "website",
+      "installedCheck": "EPLAN.exe"
+    },
+    {
+      "name": "QElectroTech",
+      "description": "Open-source electrical diagram design software",
+      "category": "Electrical",
+      "version": "0.100.0",
+      "downloadUrl": "https://download.qelectrotech.org/qet/tags/20260125/Windows/Installer_QElectroTech-0.100.0_x86_64-win64+git8590-1.exe",
+      "website": "https://qelectrotech.org/download.php",
+      "installerType": "exe",
+      "installerArguments": "/S",
+      "installedCheck": "qelectrotech.exe"
+    },
+    {
+      "name": "KiCad",
+      "description": "Electronic schematic and PCB design software",
+      "category": "Electrical",
+      "version": "10.0.6",
+      "installerType": "winget",
+      "packageId": "KiCad.KiCad",
+      "installedCheck": "kicad.exe"
+    },
+    {
+      "name": "CODESYS",
+      "description": "Industrial automation and PLC programming environment",
+      "category": "Automation",
+      "version": "Latest",
+      "downloadUrl": "https://www.codesys.com/",
+      "website": "https://www.codesys.com/",
+      "installerType": "website",
+      "installedCheck": "CODESYS.exe"
+    },
+    {
+      "name": "TIA Portal",
+      "description": "PLC programming and industrial automation engineering",
+      "category": "Automation",
+      "version": "Latest",
+      "downloadUrl": "https://www.siemens.com/tia-portal",
+      "website": "https://www.siemens.com/tia-portal",
+      "installerType": "website",
+      "installedCheck": "Siemens.Automation.Portal.exe"
+    },
+    {
+      "name": "Arduino IDE",
+      "description": "Development environment for Arduino and embedded systems",
+      "category": "Automation",
+      "version": "2.3.10",
+      "installerType": "winget",
+      "packageId": "ArduinoSA.IDE.stable",
+      "installedCheck": "arduino-ide.exe"
+    },
+    {
+      "name": "FreeCAD",
+      "description": "Open-source parametric 3D CAD modeling",
+      "category": "CAD",
+      "version": "1.1.3",
+      "installerType": "winget",
+      "packageId": "FreeCAD.FreeCAD",
+      "installedCheck": "FreeCAD.exe"
+    },
+    {
+      "name": "PrusaSlicer",
+      "description": "3D printer slicing and print preparation",
+      "category": "3D Printing",
+      "version": "2.9.6",
+      "installerType": "winget",
+      "packageId": "Prusa3D.PrusaSlicer",
+      "installedCheck": "prusa-slicer.exe"
+    },
+    {
+      "name": "UltiMaker Cura",
+      "description": "3D printer slicing and print preparation",
+      "category": "3D Printing",
+      "version": "5.13",
+      "installerType": "winget",
+      "packageId": "Ultimaker.Cura",
+      "installedCheck": "UltiMaker-Cura.exe"
+    },
+    {
+      "name": "GIMP",
+      "description": "Image editing and digital graphics",
+      "category": "Graphics",
+      "version": "3.2.4",
+      "installerType": "winget",
+      "packageId": "GIMP.GIMP",
+      "installedCheck": "gimp-3.2.exe"
+    },
+    {
+      "name": "Inkscape",
+      "description": "Vector graphics and technical illustration",
+      "category": "Graphics",
+      "version": "1.4.2",
+      "installerType": "winget",
+      "packageId": "Inkscape.Inkscape",
+      "installedCheck": "inkscape.exe"
     }
   ]
 }

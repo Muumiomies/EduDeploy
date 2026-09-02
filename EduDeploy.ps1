@@ -1,14 +1,14 @@
-Add-Type -AssemblyName PresentationFramework
+﻿Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 $ErrorActionPreference = "Stop"
 
 # ==========================================
-# EduDeploy v0.4.1
+# EduDeploy v0.5.0
 # ==========================================
 
-$Version = "0.4.1"
+$Version = "0.5.0"
 
 # ==========================================
 # Load configuration
@@ -36,6 +36,26 @@ catch {
 }
 
 # ==========================================
+# Validate configuration
+# ==========================================
+
+if ($null -eq $Config.applications) {
+    [System.Windows.MessageBox]::Show(
+        "config.json does not contain an applications list.",
+        "EduDeploy"
+    )
+    exit
+}
+
+if ($Config.applications.Count -eq 0) {
+    [System.Windows.MessageBox]::Show(
+        "config.json does not contain any applications.",
+        "EduDeploy"
+    )
+    exit
+}
+
+# ==========================================
 # Global UI references
 # ==========================================
 
@@ -45,8 +65,19 @@ $CurrentProgressText = $null
 $CurrentSpeedText = $null
 $CurrentSizeText = $null
 
+$Window = $null
+$AppPanel = $null
+$Header = $null
+$DescriptionHeader = $null
+
 # ==========================================
-# Helper: Format file size
+# Installation detection cache
+# ==========================================
+
+$script:InstalledApplicationCache = @{}
+
+# ==========================================
+# Format file size
 # ==========================================
 
 function Format-FileSize {
@@ -70,6 +101,213 @@ function Format-FileSize {
 }
 
 # ==========================================
+# Update status text
+# ==========================================
+
+function Write-Status {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    if ($null -ne $CurrentStatusText) {
+        $CurrentStatusText.Text = $Message
+    }
+
+    if ($null -ne $Window) {
+        $Window.Dispatcher.Invoke(
+            [Action] {},
+            [System.Windows.Threading.DispatcherPriority]::Background
+        )
+    }
+}
+
+# ==========================================
+# Check whether application is installed
+# ==========================================
+
+function Test-ApplicationInstalled {
+    param (
+        [Parameter(Mandatory = $true)]
+        $App
+    )
+
+    if ([string]::IsNullOrWhiteSpace($App.installedCheck)) {
+        return $false
+    }
+
+    $Check = $App.installedCheck.ToString()
+    $AppName = $App.name.ToString()
+
+    $CacheKey = "$AppName|$Check"
+
+    # ==========================================
+    # Cache
+    # ==========================================
+
+    if ($script:InstalledApplicationCache.ContainsKey($CacheKey)) {
+        return [bool]$script:InstalledApplicationCache[$CacheKey]
+    }
+
+    # ==========================================
+    # Check PATH
+    # ==========================================
+
+    try {
+        $Command = Get-Command $Check -ErrorAction SilentlyContinue
+
+        if ($null -ne $Command) {
+            $script:InstalledApplicationCache[$CacheKey] = $true
+            return $true
+        }
+    }
+    catch {
+        # Ignore
+    }
+
+    # ==========================================
+    # Blender special detection
+    # ==========================================
+
+    if ($Check -eq "blender.exe") {
+        try {
+            $BlenderRoot = "C:\Program Files\Blender Foundation"
+
+            if (Test-Path $BlenderRoot) {
+                $BlenderExe = Get-ChildItem `
+                    -Path $BlenderRoot `
+                    -Filter "blender.exe" `
+                    -File `
+                    -Recurse `
+                    -ErrorAction SilentlyContinue `
+                    | Select-Object -First 1
+
+                if ($null -ne $BlenderExe) {
+                    $script:InstalledApplicationCache[$CacheKey] = $true
+                    return $true
+                }
+            }
+        }
+        catch {
+            # Ignore
+        }
+    }
+
+    # ==========================================
+    # Windows uninstall registry
+    # ==========================================
+
+    $RegistryPaths = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    foreach ($RegistryPath in $RegistryPaths) {
+        try {
+            $Entries = Get-ItemProperty `
+                -Path $RegistryPath `
+                -ErrorAction SilentlyContinue
+
+            foreach ($Entry in $Entries) {
+
+                if ([string]::IsNullOrWhiteSpace($Entry.DisplayName)) {
+                    continue
+                }
+
+                $DisplayName = $Entry.DisplayName.ToString()
+
+                if ($DisplayName -eq $AppName) {
+                    $script:InstalledApplicationCache[$CacheKey] = $true
+                    return $true
+                }
+
+                if ($DisplayName -like "*$AppName*") {
+                    $script:InstalledApplicationCache[$CacheKey] = $true
+                    return $true
+                }
+            }
+        }
+        catch {
+            # Ignore inaccessible registry keys
+        }
+    }
+
+    # ==========================================
+    # Direct common executable locations
+    # ==========================================
+
+    $CommonPaths = @(
+        "$env:ProgramFiles\$Check",
+        "${env:ProgramFiles(x86)}\$Check",
+        "$env:LOCALAPPDATA\Programs\$Check",
+        "$env:LOCALAPPDATA\$Check"
+    )
+
+    foreach ($Path in $CommonPaths) {
+
+        if (
+            -not [string]::IsNullOrWhiteSpace($Path) -and
+            (Test-Path $Path -PathType Leaf)
+        ) {
+            $script:InstalledApplicationCache[$CacheKey] = $true
+            return $true
+        }
+    }
+
+    # ==========================================
+    # Not installed
+    # ==========================================
+
+    $script:InstalledApplicationCache[$CacheKey] = $false
+
+    return $false
+}
+
+# ==========================================
+# Check WinGet package
+# ==========================================
+
+function Test-WingetInstalled {
+    param (
+        [Parameter(Mandatory = $true)]
+        $App
+    )
+
+    if ([string]::IsNullOrWhiteSpace($App.packageId)) {
+        return $false
+    }
+
+    try {
+        $Winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+
+        if ($null -eq $Winget) {
+            return $false
+        }
+
+        $Output = & $Winget.Source list `
+            --id $App.packageId `
+            --exact `
+            --accept-source-agreements 2>$null
+
+        if ($LASTEXITCODE -eq 0) {
+
+            foreach ($Line in $Output) {
+
+                if ($Line -match [regex]::Escape($App.packageId)) {
+                    return $true
+                }
+            }
+        }
+    }
+    catch {
+        # Ignore
+    }
+
+    return $false
+}
+
+# ==========================================
 # Update download progress
 # ==========================================
 
@@ -88,39 +326,48 @@ function Update-DownloadProgress {
 
         $Percent = ($BytesReceived / $TotalBytes) * 100
 
+        if ($Percent -gt 100) {
+            $Percent = 100
+        }
+
         $CurrentProgressBar.IsIndeterminate = $false
         $CurrentProgressBar.Value = $Percent
 
-        $CurrentProgressText.Text = "{0:N0} %" -f $Percent
+        $CurrentProgressText.Text =
+            "{0:N0} %" -f $Percent
 
-        $CurrentSizeText.Text = "{0} / {1}" -f `
-            (Format-FileSize $BytesReceived), `
-            (Format-FileSize $TotalBytes)
+        $CurrentSizeText.Text =
+            "{0} / {1}" -f `
+                (Format-FileSize $BytesReceived), `
+                (Format-FileSize $TotalBytes)
     }
     else {
 
         $CurrentProgressBar.IsIndeterminate = $true
 
-        $CurrentProgressText.Text = "Downloading..."
+        $CurrentProgressText.Text =
+            "Downloading..."
 
-        $CurrentSizeText.Text = Format-FileSize $BytesReceived
+        $CurrentSizeText.Text =
+            Format-FileSize $BytesReceived
     }
 
     if ($SpeedBytesPerSecond -gt 0) {
 
-        $CurrentSpeedText.Text = "{0}/s" -f `
-            (Format-FileSize $SpeedBytesPerSecond)
+        $CurrentSpeedText.Text =
+            "{0}/s" -f (Format-FileSize $SpeedBytesPerSecond)
     }
     else {
 
         $CurrentSpeedText.Text = ""
     }
 
-    # Allow WPF to process pending UI events
-    $Window.Dispatcher.Invoke(
-        [Action] {},
-        [System.Windows.Threading.DispatcherPriority]::Background
-    )
+    if ($null -ne $Window) {
+        $Window.Dispatcher.Invoke(
+            [Action] {},
+            [System.Windows.Threading.DispatcherPriority]::Background
+        )
+    }
 }
 
 # ==========================================
@@ -159,17 +406,20 @@ function Download-Installer {
 
         $Buffer = New-Object byte[] 65536
 
-        $BytesReceived = 0
+        [long]$BytesReceived = 0
 
-        $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $Stopwatch =
+            [System.Diagnostics.Stopwatch]::StartNew()
 
         $LastUpdate = 0
 
-        while (($Read = $InputStream.Read(
-            $Buffer,
-            0,
-            $Buffer.Length
-        )) -gt 0) {
+        while (
+            ($Read = $InputStream.Read(
+                $Buffer,
+                0,
+                $Buffer.Length
+            )) -gt 0
+        ) {
 
             $OutputStream.Write(
                 $Buffer,
@@ -179,18 +429,17 @@ function Download-Installer {
 
             $BytesReceived += $Read
 
-            $ElapsedSeconds = $Stopwatch.Elapsed.TotalSeconds
+            $ElapsedSeconds =
+                $Stopwatch.Elapsed.TotalSeconds
 
             if ($ElapsedSeconds -gt 0) {
-
-                $Speed = $BytesReceived / $ElapsedSeconds
+                $Speed =
+                    $BytesReceived / $ElapsedSeconds
             }
             else {
-
                 $Speed = 0
             }
 
-            # Update UI approximately every 100 ms
             if (
                 ($Stopwatch.ElapsedMilliseconds - $LastUpdate) -ge 100
             ) {
@@ -200,7 +449,8 @@ function Download-Installer {
                     -TotalBytes $TotalBytes `
                     -SpeedBytesPerSecond $Speed
 
-                $LastUpdate = $Stopwatch.ElapsedMilliseconds
+                $LastUpdate =
+                    $Stopwatch.ElapsedMilliseconds
             }
         }
 
@@ -228,7 +478,7 @@ function Download-Installer {
 }
 
 # ==========================================
-# Run installer without freezing UI
+# Run installer process
 # ==========================================
 
 function Start-InstallerProcess {
@@ -244,30 +494,44 @@ function Start-InstallerProcess {
         [string]$WorkingDirectory
     )
 
-    $Process = New-Object System.Diagnostics.Process
+    $Process =
+        New-Object System.Diagnostics.Process
 
-    $Process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $Process.StartInfo =
+        New-Object System.Diagnostics.ProcessStartInfo
 
-    $Process.StartInfo.FileName = $FilePath
-    $Process.StartInfo.Arguments = $Arguments
-    $Process.StartInfo.WorkingDirectory = $WorkingDirectory
-    $Process.StartInfo.UseShellExecute = $true
-    $Process.StartInfo.Verb = "runas"
+    $Process.StartInfo.FileName =
+        $FilePath
 
-    $Process.Start()
+    $Process.StartInfo.Arguments =
+        $Arguments
+
+    $Process.StartInfo.WorkingDirectory =
+        $WorkingDirectory
+
+    $Process.StartInfo.UseShellExecute =
+        $true
+
+    $Process.StartInfo.Verb =
+        "runas"
+
+    [void]$Process.Start()
 
     while (-not $Process.HasExited) {
 
-        # Keep WPF responsive while installer runs
-        $Window.Dispatcher.Invoke(
-            [Action] {},
-            [System.Windows.Threading.DispatcherPriority]::Background
-        )
+        if ($null -ne $Window) {
+
+            $Window.Dispatcher.Invoke(
+                [Action] {},
+                [System.Windows.Threading.DispatcherPriority]::Background
+            )
+        }
 
         Start-Sleep -Milliseconds 100
     }
 
-    $ExitCode = $Process.ExitCode
+    $ExitCode =
+        $Process.ExitCode
 
     $Process.Dispose()
 
@@ -275,7 +539,7 @@ function Start-InstallerProcess {
 }
 
 # ==========================================
-# General application installer
+# Install application
 # ==========================================
 
 function Install-Application {
@@ -285,30 +549,133 @@ function Install-Application {
         $App
     )
 
-    $TempDir = Join-Path $env:TEMP "EduDeploy"
+    $TempDir =
+        Join-Path $env:TEMP "EduDeploy"
 
     if (-not (Test-Path $TempDir)) {
 
         New-Item `
             -ItemType Directory `
             -Path $TempDir `
-            -Force | Out-Null
+            -Force |
+            Out-Null
     }
 
     # ==========================================
-    # Website installer
+    # WinGet application
+    # ==========================================
+
+    if ($App.installerType -eq "winget") {
+
+        if ([string]::IsNullOrWhiteSpace($App.packageId)) {
+            throw "WinGet packageId is missing for $($App.name)."
+        }
+
+        $Winget =
+            Get-Command winget.exe -ErrorAction SilentlyContinue
+
+        if ($null -eq $Winget) {
+            throw "WinGet is not available on this Windows installation."
+        }
+
+        Write-Status `
+            "Installing $($App.name) with WinGet..."
+
+        $CurrentProgressBar.IsIndeterminate =
+            $true
+
+        $CurrentProgressText.Text =
+            "Installing"
+
+        $CurrentSizeText.Text = ""
+        $CurrentSpeedText.Text = ""
+
+        $InstallArgs = @(
+            "install"
+            "--id"
+            $App.packageId
+            "--exact"
+            "--silent"
+            "--disable-interactivity"
+            "--accept-package-agreements"
+            "--accept-source-agreements"
+        )
+
+        $ProcessInfo =
+            New-Object System.Diagnostics.ProcessStartInfo
+
+        $ProcessInfo.FileName =
+            $Winget.Source
+
+        $ProcessInfo.Arguments =
+            ($InstallArgs -join " ")
+
+        $ProcessInfo.UseShellExecute =
+            $true
+
+        $ProcessInfo.Verb =
+            "runas"
+
+        $Process =
+            New-Object System.Diagnostics.Process
+
+        $Process.StartInfo =
+            $ProcessInfo
+
+        [void]$Process.Start()
+
+        while (-not $Process.HasExited) {
+
+            if ($null -ne $Window) {
+
+                $Window.Dispatcher.Invoke(
+                    [Action] {},
+                    [System.Windows.Threading.DispatcherPriority]::Background
+                )
+            }
+
+            Start-Sleep -Milliseconds 200
+        }
+
+        $ExitCode =
+            $Process.ExitCode
+
+        $Process.Dispose()
+
+        if ($ExitCode -notin @(0, 3010)) {
+
+            throw (
+                "$($App.name): WinGet installation failed.`n`n" +
+                "Exit code: $ExitCode"
+            )
+        }
+
+        return @{
+            Type = "installer"
+            Success = $true
+            RestartRequired = ($ExitCode -eq 3010)
+            ExitCode = $ExitCode
+        }
+    }
+
+    # ==========================================
+    # Website application
     # ==========================================
 
     if ($App.installerType -eq "website") {
 
-        if ([string]::IsNullOrWhiteSpace($App.website)) {
-
+        if (
+            [string]::IsNullOrWhiteSpace(
+                $App.website
+            )
+        ) {
             throw "No website has been configured for this application."
         }
 
-        $CurrentStatusText.Text = "Opening download page..."
+        Write-Status "Opening download page..."
 
-        Start-Process $App.website
+        Start-Process `
+            -FilePath $App.website
 
         return @{
             Type = "website"
@@ -320,13 +687,16 @@ function Install-Application {
     # Download URL
     # ==========================================
 
-    if ([string]::IsNullOrWhiteSpace($App.downloadUrl)) {
-
+    if (
+        [string]::IsNullOrWhiteSpace(
+            $App.downloadUrl
+        )
+    ) {
         throw "No downloadUrl has been configured for this application."
     }
 
     # ==========================================
-    # File extension
+    # Installer type
     # ==========================================
 
     $Extension = ".bin"
@@ -350,46 +720,66 @@ function Install-Application {
     # Safe filename
     # ==========================================
 
-    $SafeName = $App.name -replace '[^a-zA-Z0-9_-]', '_'
+    $SafeName =
+        $App.name -replace '[^a-zA-Z0-9_-]', '_'
 
-    $InstallerPath = Join-Path `
-        $TempDir `
-        "$SafeName$Extension"
+    $InstallerPath =
+        Join-Path `
+            $TempDir `
+            "$SafeName$Extension"
 
-    $LogPath = Join-Path `
-        $TempDir `
-        "$SafeName-install.log"
+    $LogPath =
+        Join-Path `
+            $TempDir `
+            "$SafeName-install.log"
 
     # ==========================================
-    # Clean old files
+    # Remove old files
     # ==========================================
 
     if (Test-Path $InstallerPath) {
 
         Remove-Item `
             $InstallerPath `
-            -Force
+            -Force `
+            -ErrorAction SilentlyContinue
     }
 
     if (Test-Path $LogPath) {
 
         Remove-Item `
             $LogPath `
-            -Force
+            -Force `
+            -ErrorAction SilentlyContinue
     }
+
+    # ==========================================
+    # Prepare progress
+    # ==========================================
+
+    $CurrentProgressBar.Foreground =
+        [System.Windows.Media.Brushes]::Gray
+
+    $CurrentProgressBar.IsIndeterminate =
+        $false
+
+    $CurrentProgressBar.Value =
+        0
+
+    $CurrentProgressText.Text =
+        "0 %"
+
+    $CurrentSpeedText.Text =
+        ""
+
+    $CurrentSizeText.Text =
+        ""
 
     # ==========================================
     # Download
     # ==========================================
 
-    $CurrentStatusText.Text = "Downloading $($App.name)..."
-
-    $CurrentProgressBar.IsIndeterminate = $false
-    $CurrentProgressBar.Value = 0
-
-    $CurrentProgressText.Text = "0 %"
-    $CurrentSpeedText.Text = ""
-    $CurrentSizeText.Text = ""
+    Write-Status "Downloading $($App.name)..."
 
     Download-Installer `
         -Url $App.downloadUrl `
@@ -400,14 +790,13 @@ function Install-Application {
     # ==========================================
 
     if (-not (Test-Path $InstallerPath)) {
-
         throw "$($App.name): download failed."
     }
 
-    $FileSize = (Get-Item $InstallerPath).Length
+    $FileSize =
+        (Get-Item $InstallerPath).Length
 
     if ($FileSize -lt 10KB) {
-
         throw "$($App.name): downloaded file appears to be too small."
     }
 
@@ -415,44 +804,66 @@ function Install-Application {
     # Download complete
     # ==========================================
 
-    $CurrentProgressBar.IsIndeterminate = $false
-    $CurrentProgressBar.Value = 100
+    $CurrentProgressBar.IsIndeterminate =
+        $false
 
-    $CurrentProgressText.Text = "100 %"
-    $CurrentSizeText.Text = Format-FileSize $FileSize
-    $CurrentSpeedText.Text = ""
+    $CurrentProgressBar.Value =
+        100
 
-    # ==========================================
-    # Installation state
-    # ==========================================
+    $CurrentProgressText.Text =
+        "100 %"
 
-    $CurrentStatusText.Text = "Installing $($App.name)..."
+    $CurrentSizeText.Text =
+        Format-FileSize $FileSize
 
-    $CurrentProgressBar.IsIndeterminate = $true
-
-    $CurrentProgressText.Text = "Installing"
-    $CurrentSizeText.Text = ""
-    $CurrentSpeedText.Text = ""
+    $CurrentSpeedText.Text =
+        ""
 
     # ==========================================
-    # MSI
+    # Installation
+    # ==========================================
+
+    Write-Status "Installing $($App.name)..."
+
+    $CurrentProgressBar.IsIndeterminate =
+        $true
+
+    $CurrentProgressText.Text =
+        "Installing"
+
+    $CurrentSizeText.Text =
+        ""
+
+    $CurrentSpeedText.Text =
+        ""
+
+    # ==========================================
+    # MSI installer
     # ==========================================
 
     if ($App.installerType.ToLower() -eq "msi") {
 
-        $Arguments = "/i `"$InstallerPath`""
+        $Arguments =
+            "/i `"$InstallerPath`""
 
-        if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+        if (
+            -not [string]::IsNullOrWhiteSpace(
+                $App.installerArguments
+            )
+        ) {
 
-            $Arguments += " $($App.installerArguments)"
+            $Arguments +=
+                " $($App.installerArguments)"
         }
 
-        $Arguments += " /L*v `"$LogPath`""
+        $Arguments +=
+            " /L*v `"$LogPath`""
 
-        $ExitCode = Start-InstallerProcess `
-            -FilePath "msiexec.exe" `
-            -Arguments $Arguments `
-            -WorkingDirectory $TempDir
+        $ExitCode =
+            Start-InstallerProcess `
+                -FilePath "msiexec.exe" `
+                -Arguments $Arguments `
+                -WorkingDirectory $TempDir
 
         if ($ExitCode -eq 0) {
 
@@ -477,38 +888,52 @@ function Install-Application {
             }
         }
 
-        throw "$($App.name): MSI installation failed.`n`nExit code: $ExitCode`n`nLog file:`n$LogPath"
+        throw (
+            "$($App.name): MSI installation failed.`n`n" +
+            "Exit code: $ExitCode`n`n" +
+            "Log file:`n$LogPath"
+        )
     }
 
     # ==========================================
-    # EXE
+    # EXE installer
     # ==========================================
 
     if ($App.installerType.ToLower() -eq "exe") {
 
         $Arguments = ""
 
-        if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+        if (
+            -not [string]::IsNullOrWhiteSpace(
+                $App.installerArguments
+            )
+        ) {
 
-            $Arguments = $App.installerArguments
+            $Arguments =
+                $App.installerArguments
         }
 
-        $ExitCode = Start-InstallerProcess `
-            -FilePath $InstallerPath `
-            -Arguments $Arguments `
-            -WorkingDirectory $TempDir
+        $ExitCode =
+            Start-InstallerProcess `
+                -FilePath $InstallerPath `
+                -Arguments $Arguments `
+                -WorkingDirectory $TempDir
 
-        if ($ExitCode -eq 0) {
+        if ($ExitCode -eq 0 -or $ExitCode -eq 3010) {
 
             return @{
                 Type = "installer"
                 Success = $true
+                RestartRequired = ($ExitCode -eq 3010)
                 ExitCode = $ExitCode
                 InstallerPath = $InstallerPath
             }
         }
 
-        throw "$($App.name): EXE installation failed.`n`nExit code: $ExitCode"
+        throw (
+            "$($App.name): EXE installation failed.`n`n" +
+            "Exit code: $ExitCode"
+        )
     }
 }
 
@@ -516,250 +941,450 @@ function Install-Application {
 # Main Window
 # ==========================================
 
-$Window = New-Object System.Windows.Window
+$Window =
+    New-Object System.Windows.Window
 
-$Window.Title = "EduDeploy"
-$Window.Width = 1000
-$Window.Height = 650
-$Window.MinWidth = 800
-$Window.MinHeight = 500
-$Window.WindowStartupLocation = "CenterScreen"
-$Window.Background = "#F5F5F5"
+$Window.Title =
+    "EduDeploy"
+
+$Window.Width =
+    1000
+
+$Window.Height =
+    700
+
+$Window.MinWidth =
+    800
+
+$Window.MinHeight =
+    500
+
+$Window.WindowStartupLocation =
+    "CenterScreen"
+
+$Window.Background =
+    "#F5F5F5"
 
 # ==========================================
 # Main Grid
 # ==========================================
 
-$MainGrid = New-Object System.Windows.Controls.Grid
+$MainGrid =
+    New-Object System.Windows.Controls.Grid
 
-$SidebarColumn = New-Object System.Windows.Controls.ColumnDefinition
-$SidebarColumn.Width = "230"
+$SidebarColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
 
-$ContentColumn = New-Object System.Windows.Controls.ColumnDefinition
-$ContentColumn.Width = "*"
+$SidebarColumn.Width =
+    "230"
 
-$MainGrid.ColumnDefinitions.Add($SidebarColumn)
-$MainGrid.ColumnDefinitions.Add($ContentColumn)
+$ContentColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
+
+$ContentColumn.Width =
+    "*"
+
+$MainGrid.ColumnDefinitions.Add(
+    $SidebarColumn
+)
+
+$MainGrid.ColumnDefinitions.Add(
+    $ContentColumn
+)
 
 # ==========================================
 # Sidebar
 # ==========================================
 
-$Sidebar = New-Object System.Windows.Controls.StackPanel
-$Sidebar.Margin = "20"
+$Sidebar =
+    New-Object System.Windows.Controls.StackPanel
+
+$Sidebar.Margin =
+    "20"
 
 [System.Windows.Controls.Grid]::SetColumn(
     $Sidebar,
     0
 )
 
-$Logo = New-Object System.Windows.Controls.TextBlock
-$Logo.Text = "EduDeploy"
-$Logo.FontSize = 30
-$Logo.FontWeight = "Bold"
-$Logo.Margin = "0,5,0,0"
+$Logo =
+    New-Object System.Windows.Controls.TextBlock
 
-$Sidebar.Children.Add($Logo)
+$Logo.Text =
+    "EduDeploy"
 
-$Subtitle = New-Object System.Windows.Controls.TextBlock
-$Subtitle.Text = "3D Software Installer"
-$Subtitle.FontSize = 13
-$Subtitle.Foreground = "#666666"
-$Subtitle.Margin = "0,2,0,35"
+$Logo.FontSize =
+    30
 
-$Sidebar.Children.Add($Subtitle)
+$Logo.FontWeight =
+    "Bold"
 
-$NavigationTitle = New-Object System.Windows.Controls.TextBlock
-$NavigationTitle.Text = "CATEGORIES"
-$NavigationTitle.FontSize = 11
-$NavigationTitle.FontWeight = "Bold"
-$NavigationTitle.Foreground = "#777777"
-$NavigationTitle.Margin = "0,0,0,10"
+$Logo.Margin =
+    "0,5,0,0"
 
-$Sidebar.Children.Add($NavigationTitle)
+$Sidebar.Children.Add(
+    $Logo
+)
+
+$Subtitle =
+    New-Object System.Windows.Controls.TextBlock
+
+$Subtitle.Text =
+    "Student Software Installer"
+
+$Subtitle.FontSize =
+    13
+
+$Subtitle.Foreground =
+    "#666666"
+
+$Subtitle.Margin =
+    "0,2,0,25"
+
+$Sidebar.Children.Add(
+    $Subtitle
+)
+
+$NavigationTitle =
+    New-Object System.Windows.Controls.TextBlock
+
+$NavigationTitle.Text =
+    "CATEGORIES"
+
+$NavigationTitle.FontSize =
+    11
+
+$NavigationTitle.FontWeight =
+    "Bold"
+
+$NavigationTitle.Foreground =
+    "#777777"
+
+$NavigationTitle.Margin =
+    "0,0,0,10"
+
+$Sidebar.Children.Add(
+    $NavigationTitle
+)
 
 # ==========================================
-# Navigation buttons
+# Category scroll area
 # ==========================================
 
-$AllButton = New-Object System.Windows.Controls.Button
-$AllButton.Content = "All Applications"
-$AllButton.Height = 40
-$AllButton.HorizontalContentAlignment = "Left"
-$AllButton.Padding = "15,0"
-$AllButton.Margin = "0,0,0,6"
+$CategoryScroll =
+    New-Object System.Windows.Controls.ScrollViewer
 
-$ThreeDButton = New-Object System.Windows.Controls.Button
-$ThreeDButton.Content = "3D"
-$ThreeDButton.Height = 40
-$ThreeDButton.HorizontalContentAlignment = "Left"
-$ThreeDButton.Padding = "15,0"
-$ThreeDButton.Margin = "0,0,0,6"
+$CategoryScroll.Height =
+    450
 
-$CadButton = New-Object System.Windows.Controls.Button
-$CadButton.Content = "CAD"
-$CadButton.Height = 40
-$CadButton.HorizontalContentAlignment = "Left"
-$CadButton.Padding = "15,0"
-$CadButton.Margin = "0,0,0,6"
+$CategoryScroll.VerticalScrollBarVisibility =
+    "Auto"
 
-$Sidebar.Children.Add($AllButton)
-$Sidebar.Children.Add($ThreeDButton)
-$Sidebar.Children.Add($CadButton)
+$CategoryScroll.HorizontalScrollBarVisibility =
+    "Disabled"
+
+$CategoryPanel =
+    New-Object System.Windows.Controls.StackPanel
+
+$CategoryScroll.Content =
+    $CategoryPanel
+
+$Sidebar.Children.Add(
+    $CategoryScroll
+)
 
 # ==========================================
 # Version
 # ==========================================
 
-$VersionText = New-Object System.Windows.Controls.TextBlock
-$VersionText.Text = "EduDeploy v$Version"
-$VersionText.Foreground = "#888888"
-$VersionText.Margin = "0,35,0,0"
+$VersionText =
+    New-Object System.Windows.Controls.TextBlock
 
-$Sidebar.Children.Add($VersionText)
+$VersionText.Text =
+    "EduDeploy v$Version"
+
+$VersionText.Foreground =
+    "#888888"
+
+$VersionText.Margin =
+    "0,15,0,0"
+
+$Sidebar.Children.Add(
+    $VersionText
+)
 
 # ==========================================
 # Content
 # ==========================================
 
-$Content = New-Object System.Windows.Controls.StackPanel
-$Content.Margin = "30"
+$Content =
+    New-Object System.Windows.Controls.StackPanel
+
+$Content.Margin =
+    "30"
 
 [System.Windows.Controls.Grid]::SetColumn(
     $Content,
     1
 )
 
-$Header = New-Object System.Windows.Controls.TextBlock
-$Header.Text = "3D Software"
-$Header.FontSize = 28
-$Header.FontWeight = "Bold"
-$Header.Margin = "0,0,0,5"
+$Header =
+    New-Object System.Windows.Controls.TextBlock
 
-$Content.Children.Add($Header)
+$Header.Text =
+    "All Applications"
 
-$DescriptionHeader = New-Object System.Windows.Controls.TextBlock
-$DescriptionHeader.Text = "Install the software you need from one place."
-$DescriptionHeader.Foreground = "#666666"
-$DescriptionHeader.Margin = "0,0,0,25"
+$Header.FontSize =
+    28
 
-$Content.Children.Add($DescriptionHeader)
+$Header.FontWeight =
+    "Bold"
+
+$Header.Margin =
+    "0,0,0,5"
+
+$Content.Children.Add(
+    $Header
+)
+
+$DescriptionHeader =
+    New-Object System.Windows.Controls.TextBlock
+
+$DescriptionHeader.Text =
+    "Install the software you need from one place."
+
+$DescriptionHeader.Foreground =
+    "#666666"
+
+$DescriptionHeader.Margin =
+    "0,0,0,20"
+
+$Content.Children.Add(
+    $DescriptionHeader
+)
 
 # ==========================================
 # Status panel
 # ==========================================
 
-$StatusBorder = New-Object System.Windows.Controls.Border
+$StatusBorder =
+    New-Object System.Windows.Controls.Border
 
-$StatusBorder.Background = "White"
-$StatusBorder.BorderBrush = "#DDDDDD"
-$StatusBorder.BorderThickness = "1"
-$StatusBorder.Padding = "15"
-$StatusBorder.Margin = "0,0,0,20"
+$StatusBorder.Background =
+    "White"
 
-$StatusPanel = New-Object System.Windows.Controls.StackPanel
+$StatusBorder.BorderBrush =
+    "#DDDDDD"
 
-$CurrentStatusText = New-Object System.Windows.Controls.TextBlock
-$CurrentStatusText.Text = "Ready"
-$CurrentStatusText.FontSize = 15
-$CurrentStatusText.FontWeight = "Bold"
+$StatusBorder.BorderThickness =
+    "1"
 
-$StatusPanel.Children.Add($CurrentStatusText)
+$StatusBorder.Padding =
+    "15"
+
+$StatusBorder.Margin =
+    "0,0,0,15"
+
+$StatusPanel =
+    New-Object System.Windows.Controls.StackPanel
+
+$CurrentStatusText =
+    New-Object System.Windows.Controls.TextBlock
+
+$CurrentStatusText.Text =
+    "Ready"
+
+$CurrentStatusText.FontSize =
+    15
+
+$CurrentStatusText.FontWeight =
+    "Bold"
+
+$StatusPanel.Children.Add(
+    $CurrentStatusText
+)
 
 # ==========================================
-# Progress bar
+# Progress grid
 # ==========================================
 
-$ProgressGrid = New-Object System.Windows.Controls.Grid
-$ProgressGrid.Margin = "0,12,0,0"
+$ProgressGrid =
+    New-Object System.Windows.Controls.Grid
 
-$ProgressColumn = New-Object System.Windows.Controls.ColumnDefinition
-$ProgressColumn.Width = "*"
+$ProgressGrid.Margin =
+    "0,12,0,0"
 
-$PercentColumn = New-Object System.Windows.Controls.ColumnDefinition
-$PercentColumn.Width = "100"
+$ProgressColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
 
-$ProgressGrid.ColumnDefinitions.Add($ProgressColumn)
-$ProgressGrid.ColumnDefinitions.Add($PercentColumn)
+$ProgressColumn.Width =
+    "*"
 
-$CurrentProgressBar = New-Object System.Windows.Controls.ProgressBar
+$PercentColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
 
-$CurrentProgressBar.Height = 12
-$CurrentProgressBar.Minimum = 0
-$CurrentProgressBar.Maximum = 100
-$CurrentProgressBar.Value = 0
+$PercentColumn.Width =
+    "100"
+
+$ProgressGrid.ColumnDefinitions.Add(
+    $ProgressColumn
+)
+
+$ProgressGrid.ColumnDefinitions.Add(
+    $PercentColumn
+)
+
+$CurrentProgressBar =
+    New-Object System.Windows.Controls.ProgressBar
+
+$CurrentProgressBar.Height =
+    12
+
+$CurrentProgressBar.Minimum =
+    0
+
+$CurrentProgressBar.Maximum =
+    100
+
+$CurrentProgressBar.Value =
+    0
 
 [System.Windows.Controls.Grid]::SetColumn(
     $CurrentProgressBar,
     0
 )
 
-$CurrentProgressText = New-Object System.Windows.Controls.TextBlock
+$CurrentProgressText =
+    New-Object System.Windows.Controls.TextBlock
 
-$CurrentProgressText.Text = "0 %"
-$CurrentProgressText.HorizontalAlignment = "Right"
-$CurrentProgressText.VerticalAlignment = "Center"
-$CurrentProgressText.Margin = "10,0,0,0"
+$CurrentProgressText.Text =
+    "0 %"
+
+$CurrentProgressText.HorizontalAlignment =
+    "Right"
+
+$CurrentProgressText.VerticalAlignment =
+    "Center"
+
+$CurrentProgressText.Margin =
+    "10,0,0,0"
 
 [System.Windows.Controls.Grid]::SetColumn(
     $CurrentProgressText,
     1
 )
 
-$ProgressGrid.Children.Add($CurrentProgressBar)
-$ProgressGrid.Children.Add($CurrentProgressText)
+$ProgressGrid.Children.Add(
+    $CurrentProgressBar
+)
 
-$StatusPanel.Children.Add($ProgressGrid)
+$ProgressGrid.Children.Add(
+    $CurrentProgressText
+)
+
+$StatusPanel.Children.Add(
+    $ProgressGrid
+)
 
 # ==========================================
 # Download information
 # ==========================================
 
-$DownloadInfoGrid = New-Object System.Windows.Controls.Grid
-$DownloadInfoGrid.Margin = "0,8,0,0"
+$DownloadInfoGrid =
+    New-Object System.Windows.Controls.Grid
 
-$SizeColumn = New-Object System.Windows.Controls.ColumnDefinition
-$SizeColumn.Width = "*"
+$DownloadInfoGrid.Margin =
+    "0,8,0,0"
 
-$SpeedColumn = New-Object System.Windows.Controls.ColumnDefinition
-$SpeedColumn.Width = "*"
+$SizeColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
 
-$DownloadInfoGrid.ColumnDefinitions.Add($SizeColumn)
-$DownloadInfoGrid.ColumnDefinitions.Add($SpeedColumn)
+$SizeColumn.Width =
+    "*"
 
-$CurrentSizeText = New-Object System.Windows.Controls.TextBlock
-$CurrentSizeText.Text = ""
+$SpeedColumn =
+    New-Object System.Windows.Controls.ColumnDefinition
+
+$SpeedColumn.Width =
+    "*"
+
+$DownloadInfoGrid.ColumnDefinitions.Add(
+    $SizeColumn
+)
+
+$DownloadInfoGrid.ColumnDefinitions.Add(
+    $SpeedColumn
+)
+
+$CurrentSizeText =
+    New-Object System.Windows.Controls.TextBlock
+
+$CurrentSizeText.Text =
+    ""
 
 [System.Windows.Controls.Grid]::SetColumn(
     $CurrentSizeText,
     0
 )
 
-$CurrentSpeedText = New-Object System.Windows.Controls.TextBlock
-$CurrentSpeedText.Text = ""
-$CurrentSpeedText.HorizontalAlignment = "Right"
+$CurrentSpeedText =
+    New-Object System.Windows.Controls.TextBlock
+
+$CurrentSpeedText.Text =
+    ""
+
+$CurrentSpeedText.HorizontalAlignment =
+    "Right"
 
 [System.Windows.Controls.Grid]::SetColumn(
     $CurrentSpeedText,
     1
 )
 
-$DownloadInfoGrid.Children.Add($CurrentSizeText)
-$DownloadInfoGrid.Children.Add($CurrentSpeedText)
+$DownloadInfoGrid.Children.Add(
+    $CurrentSizeText
+)
 
-$StatusPanel.Children.Add($DownloadInfoGrid)
+$DownloadInfoGrid.Children.Add(
+    $CurrentSpeedText
+)
 
-$StatusBorder.Child = $StatusPanel
+$StatusPanel.Children.Add(
+    $DownloadInfoGrid
+)
 
-$Content.Children.Add($StatusBorder)
+$StatusBorder.Child =
+    $StatusPanel
+
+$Content.Children.Add(
+    $StatusBorder
+)
 
 # ==========================================
-# Application panel
+# Application ScrollViewer
 # ==========================================
 
-$AppPanel = New-Object System.Windows.Controls.StackPanel
+$AppScrollViewer =
+    New-Object System.Windows.Controls.ScrollViewer
 
-$Content.Children.Add($AppPanel)
+$AppScrollViewer.Height =
+    470
+
+$AppScrollViewer.VerticalScrollBarVisibility =
+    "Auto"
+
+$AppScrollViewer.HorizontalScrollBarVisibility =
+    "Disabled"
+
+$AppPanel =
+    New-Object System.Windows.Controls.StackPanel
+
+$AppScrollViewer.Content =
+    $AppPanel
+
+$Content.Children.Add(
+    $AppScrollViewer
+)
 
 # ==========================================
 # Application rendering
@@ -773,9 +1398,29 @@ function Show-Applications {
 
     $AppPanel.Children.Clear()
 
+    if ($Category -eq "All") {
+
+        $Header.Text =
+            "All Applications"
+
+        $DescriptionHeader.Text =
+            "Install the software you need from one place."
+    }
+    else {
+
+        $Header.Text =
+            "$Category Software"
+
+        $DescriptionHeader.Text =
+            "Available software in the $Category category."
+    }
+
     foreach ($App in $Config.applications) {
 
-        if ($Category -ne "All" -and $App.category -ne $Category) {
+        if (
+            $Category -ne "All" -and
+            $App.category -ne $Category
+        ) {
             continue
         }
 
@@ -783,50 +1428,107 @@ function Show-Applications {
         # Card
         # ==========================================
 
-        $Card = New-Object System.Windows.Controls.Border
+        $Card =
+            New-Object System.Windows.Controls.Border
 
-        $Card.Background = "White"
-        $Card.BorderBrush = "#DDDDDD"
-        $Card.BorderThickness = "1"
-        $Card.Padding = "18"
-        $Card.Margin = "0,0,0,12"
+        $Card.Background =
+            "White"
 
-        $CardGrid = New-Object System.Windows.Controls.Grid
+        $Card.BorderBrush =
+            "#DDDDDD"
 
-        $InfoColumn = New-Object System.Windows.Controls.ColumnDefinition
-        $InfoColumn.Width = "*"
+        $Card.BorderThickness =
+            "1"
 
-        $ButtonColumn = New-Object System.Windows.Controls.ColumnDefinition
-        $ButtonColumn.Width = "120"
+        $Card.Padding =
+            "18"
 
-        $CardGrid.ColumnDefinitions.Add($InfoColumn)
-        $CardGrid.ColumnDefinitions.Add($ButtonColumn)
+        $Card.Margin =
+            "0,0,0,12"
+
+        $CardGrid =
+            New-Object System.Windows.Controls.Grid
+
+        $InfoColumn =
+            New-Object System.Windows.Controls.ColumnDefinition
+
+        $InfoColumn.Width =
+            "*"
+
+        $ButtonColumn =
+            New-Object System.Windows.Controls.ColumnDefinition
+
+        $ButtonColumn.Width =
+            "120"
+
+        $CardGrid.ColumnDefinitions.Add(
+            $InfoColumn
+        )
+
+        $CardGrid.ColumnDefinitions.Add(
+            $ButtonColumn
+        )
 
         # ==========================================
-        # Application information
+        # Information
         # ==========================================
 
-        $Info = New-Object System.Windows.Controls.StackPanel
+        $Info =
+            New-Object System.Windows.Controls.StackPanel
 
-        $Name = New-Object System.Windows.Controls.TextBlock
-        $Name.Text = $App.name
-        $Name.FontSize = 19
-        $Name.FontWeight = "Bold"
+        $Name =
+            New-Object System.Windows.Controls.TextBlock
 
-        $AppDescription = New-Object System.Windows.Controls.TextBlock
-        $AppDescription.Text = $App.description
-        $AppDescription.Foreground = "#666666"
-        $AppDescription.Margin = "0,5,0,0"
+        $Name.Text =
+            $App.name
 
-        $VersionInfo = New-Object System.Windows.Controls.TextBlock
-        $VersionInfo.Text = "Version: $($App.version)"
-        $VersionInfo.Foreground = "#888888"
-        $VersionInfo.FontSize = 12
-        $VersionInfo.Margin = "0,6,0,0"
+        $Name.FontSize =
+            19
 
-        $Info.Children.Add($Name)
-        $Info.Children.Add($AppDescription)
-        $Info.Children.Add($VersionInfo)
+        $Name.FontWeight =
+            "Bold"
+
+        $AppDescription =
+            New-Object System.Windows.Controls.TextBlock
+
+        $AppDescription.Text =
+            $App.description
+
+        $AppDescription.Foreground =
+            "#666666"
+
+        $AppDescription.TextWrapping =
+            "Wrap"
+
+        $AppDescription.Margin =
+            "0,5,0,0"
+
+        $VersionInfo =
+            New-Object System.Windows.Controls.TextBlock
+
+        $VersionInfo.Text =
+            "Version: $($App.version)"
+
+        $VersionInfo.Foreground =
+            "#888888"
+
+        $VersionInfo.FontSize =
+            12
+
+        $VersionInfo.Margin =
+            "0,6,0,0"
+
+        $Info.Children.Add(
+            $Name
+        )
+
+        $Info.Children.Add(
+            $AppDescription
+        )
+
+        $Info.Children.Add(
+            $VersionInfo
+        )
 
         [System.Windows.Controls.Grid]::SetColumn(
             $Info,
@@ -837,73 +1539,184 @@ function Show-Applications {
         # Install button
         # ==========================================
 
-        $InstallButton = New-Object System.Windows.Controls.Button
+        $InstallButton =
+            New-Object System.Windows.Controls.Button
 
-        if ($App.installerType -eq "website") {
+        $IsInstalled =
+            Test-ApplicationInstalled -App $App
 
-            $InstallButton.Content = "DOWNLOAD"
+        # WinGet applications get an additional
+        # package check if registry detection failed.
+
+        if (
+            -not $IsInstalled -and
+            $App.installerType -eq "winget"
+        ) {
+
+            $IsInstalled =
+                Test-WingetInstalled -App $App
+        }
+
+        if ($IsInstalled) {
+
+            $InstallButton.Content =
+                "INSTALLED"
+
+            $InstallButton.IsEnabled =
+                $false
+        }
+        elseif ($App.installerType -eq "website") {
+
+            $InstallButton.Content =
+                "DOWNLOAD"
         }
         else {
 
-            $InstallButton.Content = "INSTALL"
+            $InstallButton.Content =
+                "INSTALL"
         }
 
-        $InstallButton.Width = 100
-        $InstallButton.Height = 38
-        $InstallButton.VerticalAlignment = "Center"
-        $InstallButton.HorizontalAlignment = "Right"
+        $InstallButton.Width =
+            100
 
-        $CurrentApp = $App
-        $CurrentButton = $InstallButton
+        $InstallButton.Height =
+            38
+
+        $InstallButton.VerticalAlignment =
+            "Center"
+
+        $InstallButton.HorizontalAlignment =
+            "Right"
+
+        $CurrentApp =
+            $App
+
+        $CurrentButton =
+            $InstallButton
 
         $InstallButton.Add_Click({
 
             try {
 
-                $CurrentButton.IsEnabled = $false
+                $CurrentButton.IsEnabled =
+                    $false
 
-                if ($CurrentApp.installerType -eq "website") {
+                # ==========================================
+                # Website application
+                # ==========================================
 
-                    $CurrentButton.Content = "OPENING..."
+                if (
+                    $CurrentApp.installerType -eq "website"
+                ) {
 
-                    $CurrentStatusText.Text = `
+                    $CurrentButton.Content =
+                        "OPENING..."
+
+                    Write-Status `
                         "Opening download page..."
 
-                    $Result = Install-Application `
-                        -App $CurrentApp
+                    Install-Application `
+                        -App $CurrentApp |
+                        Out-Null
 
-                    $CurrentButton.Content = "DOWNLOAD"
-                    $CurrentButton.IsEnabled = $true
+                    $CurrentButton.Content =
+                        "DOWNLOAD"
 
-                    $CurrentStatusText.Text = "Ready"
+                    $CurrentButton.IsEnabled =
+                        $true
+
+                    Write-Status "Ready"
+
+                    return
                 }
-                else {
 
-                    $CurrentButton.Content = "INSTALLING..."
+                # ==========================================
+                # Installer application
+                # ==========================================
 
-                    $Result = Install-Application `
+                $CurrentButton.Content =
+                    "INSTALLING..."
+
+                $Result =
+                    Install-Application `
                         -App $CurrentApp
 
-                    # ==========================================
-                    # Installation successful
-                    # ==========================================
+                # ==========================================
+                # Clear installation cache
+                # ==========================================
 
-                    $CurrentProgressBar.IsIndeterminate = $false
-                    $CurrentProgressBar.Value = 100
+                if ($null -ne $script:InstalledApplicationCache) {
+                    $script:InstalledApplicationCache.Clear()
+                }
 
-                    $CurrentProgressText.Text = "100 %"
+                # ==========================================
+                # Verify installation
+                # ==========================================
 
-                    $CurrentSizeText.Text = ""
-                    $CurrentSpeedText.Text = ""
+                Write-Status `
+                    "Verifying installation..."
 
-                    # Make progress bar green
-                    $CurrentProgressBar.Foreground = `
+                $CurrentProgressBar.IsIndeterminate =
+                    $true
+
+                $CurrentProgressText.Text =
+                    "Checking"
+
+                $Window.Dispatcher.Invoke(
+                    [Action] {},
+                    [System.Windows.Threading.DispatcherPriority]::Background
+                )
+
+                Start-Sleep -Milliseconds 500
+
+                $Installed =
+                    Test-ApplicationInstalled `
+                        -App $CurrentApp
+
+                # WinGet fallback verification
+
+                if (
+                    -not $Installed -and
+                    $CurrentApp.installerType -eq "winget"
+                ) {
+
+                    $Installed =
+                        Test-WingetInstalled `
+                            -App $CurrentApp
+                }
+
+                # ==========================================
+                # Installation successful
+                # ==========================================
+
+                if ($Installed) {
+
+                    $CurrentProgressBar.IsIndeterminate =
+                        $false
+
+                    $CurrentProgressBar.Value =
+                        100
+
+                    $CurrentProgressText.Text =
+                        "100 %"
+
+                    $CurrentSizeText.Text =
+                        ""
+
+                    $CurrentSpeedText.Text =
+                        ""
+
+                    $CurrentProgressBar.Foreground =
                         [System.Windows.Media.Brushes]::Green
 
-                    $CurrentStatusText.Text = `
+                    Write-Status `
                         "Installation complete"
 
-                    $CurrentButton.Content = "INSTALLED"
+                    $CurrentButton.Content =
+                        "INSTALLED"
+
+                    $CurrentButton.IsEnabled =
+                        $false
 
                     if ($Result.RestartRequired) {
 
@@ -920,6 +1733,15 @@ function Show-Applications {
                         )
                     }
                 }
+                else {
+
+                    throw (
+                        "$($CurrentApp.name) installer finished successfully, " +
+                        "but EduDeploy could not verify the installation.`n`n" +
+                        "The application may still be installed. " +
+                        "You can check Windows or launch the application manually."
+                    )
+                }
             }
             catch {
 
@@ -927,21 +1749,32 @@ function Show-Applications {
                 # Installation failed
                 # ==========================================
 
-                $CurrentButton.Content = "INSTALL"
-                $CurrentButton.IsEnabled = $true
+                $CurrentButton.Content =
+                    "INSTALL"
 
-                $CurrentStatusText.Text = `
+                $CurrentButton.IsEnabled =
+                    $true
+
+                Write-Status `
                     "Installation failed"
 
-                $CurrentProgressBar.IsIndeterminate = $false
-                $CurrentProgressBar.Value = 0
+                $CurrentProgressBar.IsIndeterminate =
+                    $false
 
-                $CurrentProgressBar.Foreground = `
+                $CurrentProgressBar.Value =
+                    0
+
+                $CurrentProgressBar.Foreground =
                     [System.Windows.Media.Brushes]::Gray
 
-                $CurrentProgressText.Text = "0 %"
-                $CurrentSpeedText.Text = ""
-                $CurrentSizeText.Text = ""
+                $CurrentProgressText.Text =
+                    "0 %"
+
+                $CurrentSpeedText.Text =
+                    ""
+
+                $CurrentSizeText.Text =
+                    ""
 
                 [System.Windows.MessageBox]::Show(
                     "$($CurrentApp.name) installation failed.`n`n$($_.Exception.Message)",
@@ -956,51 +1789,132 @@ function Show-Applications {
             1
         )
 
-        $CardGrid.Children.Add($Info)
-        $CardGrid.Children.Add($InstallButton)
+        $CardGrid.Children.Add(
+            $Info
+        )
 
-        $Card.Child = $CardGrid
+        $CardGrid.Children.Add(
+            $InstallButton
+        )
 
-        $AppPanel.Children.Add($Card)
+        $Card.Child =
+            $CardGrid
+
+        $AppPanel.Children.Add(
+            $Card
+        )
     }
 }
 
 # ==========================================
-# Navigation events
+# All applications button
 # ==========================================
+
+$AllButton =
+    New-Object System.Windows.Controls.Button
+
+$AllButton.Content =
+    "All Applications"
+
+$AllButton.Height =
+    40
+
+$AllButton.HorizontalContentAlignment =
+    "Left"
+
+$AllButton.Padding =
+    "15,0"
+
+$AllButton.Margin =
+    "0,0,0,6"
 
 $AllButton.Add_Click({
 
-    Show-Applications -Category "All"
+    Show-Applications `
+        -Category "All"
+
 })
 
-$ThreeDButton.Add_Click({
+$CategoryPanel.Children.Add(
+    $AllButton
+)
 
-    Show-Applications -Category "3D"
-})
+# ==========================================
+# Dynamic categories from config.json
+# ==========================================
 
-$CadButton.Add_Click({
+$Categories =
+    @(
+        $Config.applications |
+        ForEach-Object {
+            $_.category
+        } |
+        Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        } |
+        Sort-Object -Unique
+    )
 
-    Show-Applications -Category "CAD"
-})
+foreach ($Category in $Categories) {
+
+    $CategoryButton =
+        New-Object System.Windows.Controls.Button
+
+    $CategoryButton.Content =
+        $Category
+
+    $CategoryButton.Height =
+        40
+
+    $CategoryButton.HorizontalContentAlignment =
+        "Left"
+
+    $CategoryButton.Padding =
+        "15,0"
+
+    $CategoryButton.Margin =
+        "0,0,0,6"
+
+    $CurrentCategory =
+        $Category
+
+    $CategoryButton.Add_Click({
+
+        Show-Applications `
+            -Category $CurrentCategory
+
+    }.GetNewClosure())
+
+    $CategoryPanel.Children.Add(
+        $CategoryButton
+    )
+}
 
 # ==========================================
 # Assemble window
 # ==========================================
 
-$MainGrid.Children.Add($Sidebar)
-$MainGrid.Children.Add($Content)
+$MainGrid.Children.Add(
+    $Sidebar
+)
 
-$Window.Content = $MainGrid
+$MainGrid.Children.Add(
+    $Content
+)
+
+$Window.Content =
+    $MainGrid
 
 # ==========================================
 # Initial view
 # ==========================================
 
-Show-Applications -Category "All"
+Show-Applications `
+    -Category "All"
 
 # ==========================================
 # Start
 # ==========================================
 
-$Window.ShowDialog() | Out-Null
+$Window.ShowDialog() |
+    Out-Null
