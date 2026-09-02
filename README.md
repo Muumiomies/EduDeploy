@@ -1,36 +1,59 @@
 # EduDeploy
 
-**EduDeploy** on Windowsille suunniteltu keskitetty ohjelmistojen asennustyökalu 3D-, CAD- ja muiden opiskelussa tarvittavien ohjelmistojen asentamiseen.
+**EduDeploy** is a centralized Windows software deployment tool designed for students and educational environments.
 
-Tavoitteena on tehdä ohjelmistojen asentamisesta opiskelijalle mahdollisimman helppoa: ohjelma avataan, haluttu sovellus valitaan ja asennus käynnistetään yhdestä paikasta.
+It provides a simple way to download and install commonly used 3D, CAD and other technical software from a single application.
 
-## ✨ Ominaisuudet
+The goal is to make software setup easier for students by removing the need to manually find, download and install every application separately.
 
-* 🖥️ Windows-käyttöliittymä
-* 📦 Ohjelmien lataaminen ja asentaminen yhdestä paikasta
-* 🔧 MSI- ja EXE-asentajien tuki
-* 🌐 Lataussivujen avaaminen ohjelmille, joiden automaattista asennusta ei vielä tueta
-* 📁 Asennustiedostojen väliaikainen tallennus `%TEMP%\EduDeploy`-kansioon
-* 🔐 Asennusten käynnistäminen järjestelmänvalvojan oikeuksilla
-* 📝 MSI-asennusten lokitiedostot ongelmatilanteita varten
-* 🗂️ Ohjelmien ryhmittely kategorioihin
-* ⚙️ Ohjelmien tiedot määritellään `config.json`-tiedostossa
+## ✨ Features
 
-## 🛠️ Tällä hetkellä tuetut ohjelmat
+* 🖥️ Simple Windows graphical user interface
+* 📦 Download and install applications from one place
+* 📊 Download progress tracking
+* ⚙️ Installation status and progress
+* 🔧 MSI and EXE installer support
+* 🌐 Website-based installation support
+* 🔐 Installations can run with administrator privileges
+* 📝 MSI installation logging
+* 🗂️ Application categories
+* 📁 Temporary installer storage
+* ⚙️ Application configuration through `config.json`
 
-| Ohjelma         | Kategoria | Versio | Asennustapa |
-| --------------- | --------- | -----: | ----------- |
-| Blender         | 3D        | 4.5.13 | MSI         |
-| Autodesk Fusion | CAD       |   2026 | Lataussivu  |
-| Rhino           | 3D        |      8 | Lataussivu  |
-| SolidWorks      | CAD       |   2026 | Lataussivu  |
+## 🛠️ Supported Applications
 
-> Ohjelmien versiot ja latausosoitteet määritellään `config.json`-tiedostossa.
+| Application     | Category | Version | Installation Method |
+| --------------- | -------- | ------: | ------------------- |
+| Blender         | 3D       |  4.5.13 | MSI                 |
+| Autodesk Fusion | CAD      |    2026 | Website             |
+| Rhino           | 3D       |       8 | Website             |
+| SolidWorks      | CAD      |    2026 | Website             |
 
-## 📁 Projektin rakenne
+> Application versions, download URLs and installation settings are defined in `config.json`.
+
+## 🚀 Getting Started
+
+### Requirements
+
+* Windows 10 or Windows 11
+* PowerShell
+* Internet connection
+* Administrator privileges for software installation
+
+### Run EduDeploy
+
+Clone or download the repository and open a PowerShell window in the project directory.
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\EduDeploy.ps1
+```
+
+### Recommended Directory Structure
 
 ```text
-EduDeploy/
+C:\EduDeploy\
 ├── EduDeploy.ps1
 ├── config.json
 ├── README.md
@@ -38,33 +61,18 @@ EduDeploy/
 └── .gitignore
 ```
 
-## 🚀 Käynnistäminen
-
-EduDeploy voidaan käynnistää PowerShellillä:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\EduDeploy.ps1
-```
-
-### Suositeltu kansiorakenne
-
-```text
-C:\EduDeploy\
-├── EduDeploy.ps1
-├── config.json
-└── README.md
-```
-
 ## ⚙️ Configuration
 
-Ohjelmat määritellään `config.json`-tiedostossa.
+Applications are managed through the `config.json` file.
 
-Esimerkiksi Blender:
+This allows applications to be added or modified without changing the main installer logic.
+
+### Example Configuration
 
 ```json
 {
   "name": "Blender",
-  "description": "3D-mallinnus, animaatio ja renderöinti",
+  "description": "3D modeling, animation and rendering",
   "category": "3D",
   "version": "4.5.13",
   "downloadUrl": "https://download.blender.org/release/Blender4.5/blender-4.5.13-windows-x64.msi",
@@ -74,103 +82,146 @@ Esimerkiksi Blender:
 }
 ```
 
-### Installer-tyypit
+### Installer Types
 
-EduDeploy tukee tällä hetkellä seuraavia asennustyyppejä:
+EduDeploy currently supports three installation types:
 
-* `msi` – lataa MSI:n ja asentaa sen automaattisesti
-* `exe` – lataa EXE-asentajan ja käynnistää sen
-* `website` – avaa ohjelman lataussivun selaimessa
+| Type      | Description                                         |
+| --------- | --------------------------------------------------- |
+| `msi`     | Downloads and automatically installs an MSI package |
+| `exe`     | Downloads and launches an EXE installer             |
+| `website` | Opens the application's website or download page    |
 
-## 📦 Väliaikaiset tiedostot
+## 📦 Temporary Files
 
-Ladatut asennustiedostot tallennetaan:
+Downloaded installer files are temporarily stored in:
 
 ```text
 %TEMP%\EduDeploy\
 ```
 
-Esimerkiksi Blender:
+For example:
 
 ```text
 %TEMP%\EduDeploy\Blender.msi
 ```
 
-MSI-asennuksesta syntyvä loki:
+MSI installations also generate a log file:
 
 ```text
 %TEMP%\EduDeploy\Blender-install.log
 ```
 
-Lokia voidaan käyttää MSI-asennuksen vianmääritykseen.
+These logs can be used to troubleshoot MSI installation problems.
 
-## 🔐 Järjestelmänvalvojan oikeudet
+## 🔐 Administrator Privileges
 
-Ohjelmistojen asennukset suoritetaan Windowsin järjestelmänvalvojan oikeuksilla.
+Applications that require elevated permissions are launched with Windows administrator privileges.
 
-Windows näyttää tarvittaessa UAC-vahvistuksen ennen asennusta.
+Windows may display a User Account Control (UAC) confirmation before starting an installation.
 
-## 🧪 Kehitystilanne
+## 📈 Installation Process
+
+For supported installers, EduDeploy handles the basic installation process:
+
+```text
+Select application
+       ↓
+Download installer
+       ↓
+Show download progress
+       ↓
+Start installation
+       ↓
+Show installation status
+       ↓
+Installation complete
+```
+
+Applications using the `website` installer type are opened in the default web browser instead.
+
+## 🧪 Development Status
+
+EduDeploy is currently under active development.
 
 ### v0.1
 
-* Ensimmäinen käyttöliittymä
-* Kategoriat
-* Ohjelmakortit
-* Perusrakenne
+* Initial user interface
+* Application categories
+* Application cards
+* Basic project structure
 
 ### v0.2
 
-* Blenderin MSI-lataus
-* MSI-asennus `%TEMP%\EduDeploy`-kansiosta
-* Järjestelmänvalvojan oikeudet
-* MSI-asennuksen lokitus
-* Blenderin onnistunut asennus
+* Blender MSI download
+* MSI installation
+* Administrator privileges
+* MSI installation logging
+* Successful Blender installation
 
 ### v0.3
 
-* Yleinen asennusjärjestelmä
-* MSI-tuki
-* EXE-tuki
-* Website-tuki
-* Asennustavan määrittely `config.json`-tiedostossa
-* Blender ei enää tarvitse omaa erillistä asennuskoodia
+* Generic installation system
+* MSI support
+* EXE support
+* Website support
+* Installation methods defined through `config.json`
+* Blender no longer requires application-specific installation code
 
-## 🗺️ Tulevaisuus
+### v0.4.1
 
-Suunniteltuja ominaisuuksia:
+* Download progress indicator
+* Installation status and progress
+* Improved installation experience
+* Responsive installation handling
+* English user interface
+* English application configuration
+* Improved download and installer handling
 
-* [ ] Automaattinen asennuksen tunnistus
-* [ ] `ASENNETTU`-tila ohjelman käynnistyessä
-* [ ] Parempi latauksen etenemispalkki
-* [ ] Latausnopeuden ja etenemisen näyttäminen
-* [ ] Lisää 3D- ja CAD-ohjelmia
-* [ ] Parempi EXE-asentajien tuki
-* [ ] Ohjelmien päivitysten hallinta
-* [ ] Opiskelijakohtainen kirjautuminen
-* [ ] Keskitetty ohjelmistojen hallinta
-* [ ] Valmis Windows-jakelupaketti
+## 🗺️ Roadmap
 
-## 🎓 Projektin tavoite
+Planned features:
 
-EduDeployn tavoitteena on tarjota oppilaitoksille helppo tapa jakaa ja asentaa opiskelijoiden tarvitsemat ohjelmistot ilman, että jokainen ohjelma täytyy etsiä ja asentaa erikseen.
+* [ ] Automatic installation detection
+* [ ] Detect already installed applications
+* [ ] `INSTALLED` state when EduDeploy starts
+* [ ] Improved download progress information
+* [ ] Download speed display
+* [ ] More 3D and CAD applications
+* [ ] Improved EXE installer support
+* [ ] Software update management
+* [ ] Student-specific authentication
+* [ ] Centralized software management
+* [ ] Ready-to-use Windows distribution package
 
-Opiskelijan näkökulmasta prosessin pitäisi olla mahdollisimman yksinkertainen:
+## 🎓 Project Goal
+
+EduDeploy is designed to simplify software deployment in educational environments.
+
+Instead of requiring students to search for every application individually, EduDeploy aims to provide a single place where the required software can be installed.
+
+From a student's perspective, the process should be simple:
 
 ```text
-Avaa EduDeploy
-      ↓
-Valitse ohjelma
-      ↓
-Paina ASENNA
-      ↓
-EduDeploy lataa ohjelman
-      ↓
-EduDeploy asentaa ohjelman
-      ↓
-Valmis
+Open EduDeploy
+       ↓
+Select an application
+       ↓
+Click INSTALL
+       ↓
+EduDeploy downloads the installer
+       ↓
+EduDeploy installs the application
+       ↓
+Done
 ```
 
 ## 📄 License
 
-License: All rights reserved. The source code is publicly available for viewing and educational purposes. Redistribution, modification or commercial use is not permitted without permission from the author.
+Copyright (c) 2026 Johannes Loponen
+
+All rights reserved.
+
+The source code is publicly available for viewing and educational purposes.
+
+See the [LICENSE](LICENSE) file for the complete license terms.
