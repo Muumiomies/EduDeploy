@@ -31,10 +31,11 @@ Tavoitteena on tehdä ohjelmistojen asentamisesta opiskelijalle mahdollisimman h
 
 ```text
 EduDeploy/
-│
 ├── EduDeploy.ps1
 ├── config.json
-└── README.md
+├── README.md
+├── LICENSE
+└── .gitignore
 ```
 
 ## 🚀 Käynnistäminen
