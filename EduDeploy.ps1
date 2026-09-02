@@ -4,11 +4,7 @@ Add-Type -AssemblyName WindowsBase
 
 $ErrorActionPreference = "Stop"
 
-# ==========================================
-# EduDeploy v0.5.0
-# ==========================================
-
-$Version = "0.5.0"
+$Version = "0.4.2"
 
 # ==========================================
 # Load configuration
