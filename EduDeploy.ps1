@@ -5,10 +5,10 @@ Add-Type -AssemblyName WindowsBase
 $ErrorActionPreference = "Stop"
 
 # ==========================================
-# EduDeploy v0.3
+# EduDeploy v0.4.1
 # ==========================================
 
-$Version = "0.3"
+$Version = "0.4.1"
 
 # ==========================================
 # Load configuration
@@ -18,7 +18,7 @@ $ConfigPath = Join-Path $PSScriptRoot "config.json"
 
 if (-not (Test-Path $ConfigPath)) {
     [System.Windows.MessageBox]::Show(
-        "config.json ei löytynyt.",
+        "config.json was not found.",
         "EduDeploy"
     )
     exit
@@ -29,10 +29,249 @@ try {
 }
 catch {
     [System.Windows.MessageBox]::Show(
-        "config.json-tiedoston lukeminen epäonnistui.`n`n$($_.Exception.Message)",
+        "Failed to read config.json.`n`n$($_.Exception.Message)",
         "EduDeploy"
     )
     exit
+}
+
+# ==========================================
+# Global UI references
+# ==========================================
+
+$CurrentStatusText = $null
+$CurrentProgressBar = $null
+$CurrentProgressText = $null
+$CurrentSpeedText = $null
+$CurrentSizeText = $null
+
+# ==========================================
+# Helper: Format file size
+# ==========================================
+
+function Format-FileSize {
+    param (
+        [long]$Bytes
+    )
+
+    if ($Bytes -ge 1GB) {
+        return "{0:N2} GB" -f ($Bytes / 1GB)
+    }
+
+    if ($Bytes -ge 1MB) {
+        return "{0:N2} MB" -f ($Bytes / 1MB)
+    }
+
+    if ($Bytes -ge 1KB) {
+        return "{0:N2} KB" -f ($Bytes / 1KB)
+    }
+
+    return "$Bytes B"
+}
+
+# ==========================================
+# Update download progress
+# ==========================================
+
+function Update-DownloadProgress {
+    param (
+        [long]$BytesReceived,
+        [long]$TotalBytes,
+        [double]$SpeedBytesPerSecond
+    )
+
+    if ($null -eq $CurrentProgressBar) {
+        return
+    }
+
+    if ($TotalBytes -gt 0) {
+
+        $Percent = ($BytesReceived / $TotalBytes) * 100
+
+        $CurrentProgressBar.IsIndeterminate = $false
+        $CurrentProgressBar.Value = $Percent
+
+        $CurrentProgressText.Text = "{0:N0} %" -f $Percent
+
+        $CurrentSizeText.Text = "{0} / {1}" -f `
+            (Format-FileSize $BytesReceived), `
+            (Format-FileSize $TotalBytes)
+    }
+    else {
+
+        $CurrentProgressBar.IsIndeterminate = $true
+
+        $CurrentProgressText.Text = "Downloading..."
+
+        $CurrentSizeText.Text = Format-FileSize $BytesReceived
+    }
+
+    if ($SpeedBytesPerSecond -gt 0) {
+
+        $CurrentSpeedText.Text = "{0}/s" -f `
+            (Format-FileSize $SpeedBytesPerSecond)
+    }
+    else {
+
+        $CurrentSpeedText.Text = ""
+    }
+
+    # Allow WPF to process pending UI events
+    $Window.Dispatcher.Invoke(
+        [Action] {},
+        [System.Windows.Threading.DispatcherPriority]::Background
+    )
+}
+
+# ==========================================
+# Download installer
+# ==========================================
+
+function Download-Installer {
+
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Destination
+    )
+
+    $WebRequest = [System.Net.HttpWebRequest]::Create($Url)
+
+    $WebRequest.Method = "GET"
+    $WebRequest.UserAgent = "EduDeploy/$Version"
+    $WebRequest.AllowAutoRedirect = $true
+
+    $Response = $null
+    $InputStream = $null
+    $OutputStream = $null
+
+    try {
+
+        $Response = $WebRequest.GetResponse()
+
+        $TotalBytes = $Response.ContentLength
+
+        $InputStream = $Response.GetResponseStream()
+
+        $OutputStream = [System.IO.File]::Create($Destination)
+
+        $Buffer = New-Object byte[] 65536
+
+        $BytesReceived = 0
+
+        $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+        $LastUpdate = 0
+
+        while (($Read = $InputStream.Read(
+            $Buffer,
+            0,
+            $Buffer.Length
+        )) -gt 0) {
+
+            $OutputStream.Write(
+                $Buffer,
+                0,
+                $Read
+            )
+
+            $BytesReceived += $Read
+
+            $ElapsedSeconds = $Stopwatch.Elapsed.TotalSeconds
+
+            if ($ElapsedSeconds -gt 0) {
+
+                $Speed = $BytesReceived / $ElapsedSeconds
+            }
+            else {
+
+                $Speed = 0
+            }
+
+            # Update UI approximately every 100 ms
+            if (
+                ($Stopwatch.ElapsedMilliseconds - $LastUpdate) -ge 100
+            ) {
+
+                Update-DownloadProgress `
+                    -BytesReceived $BytesReceived `
+                    -TotalBytes $TotalBytes `
+                    -SpeedBytesPerSecond $Speed
+
+                $LastUpdate = $Stopwatch.ElapsedMilliseconds
+            }
+        }
+
+        $Stopwatch.Stop()
+
+        Update-DownloadProgress `
+            -BytesReceived $BytesReceived `
+            -TotalBytes $TotalBytes `
+            -SpeedBytesPerSecond 0
+    }
+    finally {
+
+        if ($null -ne $OutputStream) {
+            $OutputStream.Close()
+        }
+
+        if ($null -ne $InputStream) {
+            $InputStream.Close()
+        }
+
+        if ($null -ne $Response) {
+            $Response.Close()
+        }
+    }
+}
+
+# ==========================================
+# Run installer without freezing UI
+# ==========================================
+
+function Start-InstallerProcess {
+
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Arguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory
+    )
+
+    $Process = New-Object System.Diagnostics.Process
+
+    $Process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+
+    $Process.StartInfo.FileName = $FilePath
+    $Process.StartInfo.Arguments = $Arguments
+    $Process.StartInfo.WorkingDirectory = $WorkingDirectory
+    $Process.StartInfo.UseShellExecute = $true
+    $Process.StartInfo.Verb = "runas"
+
+    $Process.Start()
+
+    while (-not $Process.HasExited) {
+
+        # Keep WPF responsive while installer runs
+        $Window.Dispatcher.Invoke(
+            [Action] {},
+            [System.Windows.Threading.DispatcherPriority]::Background
+        )
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    $ExitCode = $Process.ExitCode
+
+    $Process.Dispose()
+
+    return $ExitCode
 }
 
 # ==========================================
@@ -40,6 +279,7 @@ catch {
 # ==========================================
 
 function Install-Application {
+
     param (
         [Parameter(Mandatory = $true)]
         $App
@@ -48,6 +288,7 @@ function Install-Application {
     $TempDir = Join-Path $env:TEMP "EduDeploy"
 
     if (-not (Test-Path $TempDir)) {
+
         New-Item `
             -ItemType Directory `
             -Path $TempDir `
@@ -61,8 +302,11 @@ function Install-Application {
     if ($App.installerType -eq "website") {
 
         if ([string]::IsNullOrWhiteSpace($App.website)) {
-            throw "Ohjelmalle ei ole määritetty verkkosivua."
+
+            throw "No website has been configured for this application."
         }
+
+        $CurrentStatusText.Text = "Opening download page..."
 
         Start-Process $App.website
 
@@ -73,12 +317,17 @@ function Install-Application {
     }
 
     # ==========================================
-    # Download installer
+    # Download URL
     # ==========================================
 
     if ([string]::IsNullOrWhiteSpace($App.downloadUrl)) {
-        throw "Ohjelmalle ei ole määritetty downloadUrl-arvoa."
+
+        throw "No downloadUrl has been configured for this application."
     }
+
+    # ==========================================
+    # File extension
+    # ==========================================
 
     $Extension = ".bin"
 
@@ -93,11 +342,14 @@ function Install-Application {
         }
 
         default {
-            throw "Tuntematon installerType: $($App.installerType)"
+            throw "Unknown installerType: $($App.installerType)"
         }
     }
 
-    # Create safe filename
+    # ==========================================
+    # Safe filename
+    # ==========================================
+
     $SafeName = $App.name -replace '[^a-zA-Z0-9_-]', '_'
 
     $InstallerPath = Join-Path `
@@ -113,31 +365,74 @@ function Install-Application {
     # ==========================================
 
     if (Test-Path $InstallerPath) {
-        Remove-Item $InstallerPath -Force
+
+        Remove-Item `
+            $InstallerPath `
+            -Force
     }
 
     if (Test-Path $LogPath) {
-        Remove-Item $LogPath -Force
+
+        Remove-Item `
+            $LogPath `
+            -Force
     }
 
     # ==========================================
     # Download
     # ==========================================
 
-    Invoke-WebRequest `
-        -Uri $App.downloadUrl `
-        -OutFile $InstallerPath
+    $CurrentStatusText.Text = "Downloading $($App.name)..."
+
+    $CurrentProgressBar.IsIndeterminate = $false
+    $CurrentProgressBar.Value = 0
+
+    $CurrentProgressText.Text = "0 %"
+    $CurrentSpeedText.Text = ""
+    $CurrentSizeText.Text = ""
+
+    Download-Installer `
+        -Url $App.downloadUrl `
+        -Destination $InstallerPath
+
+    # ==========================================
+    # Verify download
+    # ==========================================
 
     if (-not (Test-Path $InstallerPath)) {
-        throw "$($App.name): lataus epäonnistui."
+
+        throw "$($App.name): download failed."
     }
 
-    # Check file size
     $FileSize = (Get-Item $InstallerPath).Length
 
     if ($FileSize -lt 10KB) {
-        throw "$($App.name): ladattu tiedosto näyttää liian pieneltä."
+
+        throw "$($App.name): downloaded file appears to be too small."
     }
+
+    # ==========================================
+    # Download complete
+    # ==========================================
+
+    $CurrentProgressBar.IsIndeterminate = $false
+    $CurrentProgressBar.Value = 100
+
+    $CurrentProgressText.Text = "100 %"
+    $CurrentSizeText.Text = Format-FileSize $FileSize
+    $CurrentSpeedText.Text = ""
+
+    # ==========================================
+    # Installation state
+    # ==========================================
+
+    $CurrentStatusText.Text = "Installing $($App.name)..."
+
+    $CurrentProgressBar.IsIndeterminate = $true
+
+    $CurrentProgressText.Text = "Installing"
+    $CurrentSizeText.Text = ""
+    $CurrentSpeedText.Text = ""
 
     # ==========================================
     # MSI
@@ -148,43 +443,41 @@ function Install-Application {
         $Arguments = "/i `"$InstallerPath`""
 
         if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+
             $Arguments += " $($App.installerArguments)"
         }
 
         $Arguments += " /L*v `"$LogPath`""
 
-        $Process = Start-Process `
+        $ExitCode = Start-InstallerProcess `
             -FilePath "msiexec.exe" `
-            -ArgumentList $Arguments `
-            -WorkingDirectory $TempDir `
-            -Verb RunAs `
-            -Wait `
-            -PassThru
+            -Arguments $Arguments `
+            -WorkingDirectory $TempDir
 
-        if ($Process.ExitCode -eq 0) {
+        if ($ExitCode -eq 0) {
 
             return @{
                 Type = "installer"
                 Success = $true
-                ExitCode = $Process.ExitCode
+                ExitCode = $ExitCode
                 InstallerPath = $InstallerPath
                 LogPath = $LogPath
             }
         }
 
-        if ($Process.ExitCode -eq 3010) {
+        if ($ExitCode -eq 3010) {
 
             return @{
                 Type = "installer"
                 Success = $true
                 RestartRequired = $true
-                ExitCode = $Process.ExitCode
+                ExitCode = $ExitCode
                 InstallerPath = $InstallerPath
                 LogPath = $LogPath
             }
         }
 
-        throw "$($App.name): MSI-asennus epäonnistui.`n`nPalautuskoodi: $($Process.ExitCode)`n`nLokitiedosto:`n$LogPath"
+        throw "$($App.name): MSI installation failed.`n`nExit code: $ExitCode`n`nLog file:`n$LogPath"
     }
 
     # ==========================================
@@ -196,28 +489,26 @@ function Install-Application {
         $Arguments = ""
 
         if (-not [string]::IsNullOrWhiteSpace($App.installerArguments)) {
+
             $Arguments = $App.installerArguments
         }
 
-        $Process = Start-Process `
+        $ExitCode = Start-InstallerProcess `
             -FilePath $InstallerPath `
-            -ArgumentList $Arguments `
-            -WorkingDirectory $TempDir `
-            -Verb RunAs `
-            -Wait `
-            -PassThru
+            -Arguments $Arguments `
+            -WorkingDirectory $TempDir
 
-        if ($Process.ExitCode -eq 0) {
+        if ($ExitCode -eq 0) {
 
             return @{
                 Type = "installer"
                 Success = $true
-                ExitCode = $Process.ExitCode
+                ExitCode = $ExitCode
                 InstallerPath = $InstallerPath
             }
         }
 
-        throw "$($App.name): EXE-asennus epäonnistui.`n`nPalautuskoodi: $($Process.ExitCode)"
+        throw "$($App.name): EXE installation failed.`n`nExit code: $ExitCode"
     }
 }
 
@@ -257,7 +548,10 @@ $MainGrid.ColumnDefinitions.Add($ContentColumn)
 $Sidebar = New-Object System.Windows.Controls.StackPanel
 $Sidebar.Margin = "20"
 
-[System.Windows.Controls.Grid]::SetColumn($Sidebar, 0)
+[System.Windows.Controls.Grid]::SetColumn(
+    $Sidebar,
+    0
+)
 
 $Logo = New-Object System.Windows.Controls.TextBlock
 $Logo.Text = "EduDeploy"
@@ -276,7 +570,7 @@ $Subtitle.Margin = "0,2,0,35"
 $Sidebar.Children.Add($Subtitle)
 
 $NavigationTitle = New-Object System.Windows.Controls.TextBlock
-$NavigationTitle.Text = "KATEGORIAT"
+$NavigationTitle.Text = "CATEGORIES"
 $NavigationTitle.FontSize = 11
 $NavigationTitle.FontWeight = "Bold"
 $NavigationTitle.Foreground = "#777777"
@@ -289,7 +583,7 @@ $Sidebar.Children.Add($NavigationTitle)
 # ==========================================
 
 $AllButton = New-Object System.Windows.Controls.Button
-$AllButton.Content = "Kaikki ohjelmat"
+$AllButton.Content = "All Applications"
 $AllButton.Height = 40
 $AllButton.HorizontalContentAlignment = "Left"
 $AllButton.Padding = "15,0"
@@ -331,10 +625,13 @@ $Sidebar.Children.Add($VersionText)
 $Content = New-Object System.Windows.Controls.StackPanel
 $Content.Margin = "30"
 
-[System.Windows.Controls.Grid]::SetColumn($Content, 1)
+[System.Windows.Controls.Grid]::SetColumn(
+    $Content,
+    1
+)
 
 $Header = New-Object System.Windows.Controls.TextBlock
-$Header.Text = "3D-ohjelmistot"
+$Header.Text = "3D Software"
 $Header.FontSize = 28
 $Header.FontWeight = "Bold"
 $Header.Margin = "0,0,0,5"
@@ -342,11 +639,123 @@ $Header.Margin = "0,0,0,5"
 $Content.Children.Add($Header)
 
 $DescriptionHeader = New-Object System.Windows.Controls.TextBlock
-$DescriptionHeader.Text = "Asenna tarvitsemasi ohjelmistot yhdestä paikasta."
+$DescriptionHeader.Text = "Install the software you need from one place."
 $DescriptionHeader.Foreground = "#666666"
 $DescriptionHeader.Margin = "0,0,0,25"
 
 $Content.Children.Add($DescriptionHeader)
+
+# ==========================================
+# Status panel
+# ==========================================
+
+$StatusBorder = New-Object System.Windows.Controls.Border
+
+$StatusBorder.Background = "White"
+$StatusBorder.BorderBrush = "#DDDDDD"
+$StatusBorder.BorderThickness = "1"
+$StatusBorder.Padding = "15"
+$StatusBorder.Margin = "0,0,0,20"
+
+$StatusPanel = New-Object System.Windows.Controls.StackPanel
+
+$CurrentStatusText = New-Object System.Windows.Controls.TextBlock
+$CurrentStatusText.Text = "Ready"
+$CurrentStatusText.FontSize = 15
+$CurrentStatusText.FontWeight = "Bold"
+
+$StatusPanel.Children.Add($CurrentStatusText)
+
+# ==========================================
+# Progress bar
+# ==========================================
+
+$ProgressGrid = New-Object System.Windows.Controls.Grid
+$ProgressGrid.Margin = "0,12,0,0"
+
+$ProgressColumn = New-Object System.Windows.Controls.ColumnDefinition
+$ProgressColumn.Width = "*"
+
+$PercentColumn = New-Object System.Windows.Controls.ColumnDefinition
+$PercentColumn.Width = "100"
+
+$ProgressGrid.ColumnDefinitions.Add($ProgressColumn)
+$ProgressGrid.ColumnDefinitions.Add($PercentColumn)
+
+$CurrentProgressBar = New-Object System.Windows.Controls.ProgressBar
+
+$CurrentProgressBar.Height = 12
+$CurrentProgressBar.Minimum = 0
+$CurrentProgressBar.Maximum = 100
+$CurrentProgressBar.Value = 0
+
+[System.Windows.Controls.Grid]::SetColumn(
+    $CurrentProgressBar,
+    0
+)
+
+$CurrentProgressText = New-Object System.Windows.Controls.TextBlock
+
+$CurrentProgressText.Text = "0 %"
+$CurrentProgressText.HorizontalAlignment = "Right"
+$CurrentProgressText.VerticalAlignment = "Center"
+$CurrentProgressText.Margin = "10,0,0,0"
+
+[System.Windows.Controls.Grid]::SetColumn(
+    $CurrentProgressText,
+    1
+)
+
+$ProgressGrid.Children.Add($CurrentProgressBar)
+$ProgressGrid.Children.Add($CurrentProgressText)
+
+$StatusPanel.Children.Add($ProgressGrid)
+
+# ==========================================
+# Download information
+# ==========================================
+
+$DownloadInfoGrid = New-Object System.Windows.Controls.Grid
+$DownloadInfoGrid.Margin = "0,8,0,0"
+
+$SizeColumn = New-Object System.Windows.Controls.ColumnDefinition
+$SizeColumn.Width = "*"
+
+$SpeedColumn = New-Object System.Windows.Controls.ColumnDefinition
+$SpeedColumn.Width = "*"
+
+$DownloadInfoGrid.ColumnDefinitions.Add($SizeColumn)
+$DownloadInfoGrid.ColumnDefinitions.Add($SpeedColumn)
+
+$CurrentSizeText = New-Object System.Windows.Controls.TextBlock
+$CurrentSizeText.Text = ""
+
+[System.Windows.Controls.Grid]::SetColumn(
+    $CurrentSizeText,
+    0
+)
+
+$CurrentSpeedText = New-Object System.Windows.Controls.TextBlock
+$CurrentSpeedText.Text = ""
+$CurrentSpeedText.HorizontalAlignment = "Right"
+
+[System.Windows.Controls.Grid]::SetColumn(
+    $CurrentSpeedText,
+    1
+)
+
+$DownloadInfoGrid.Children.Add($CurrentSizeText)
+$DownloadInfoGrid.Children.Add($CurrentSpeedText)
+
+$StatusPanel.Children.Add($DownloadInfoGrid)
+
+$StatusBorder.Child = $StatusPanel
+
+$Content.Children.Add($StatusBorder)
+
+# ==========================================
+# Application panel
+# ==========================================
 
 $AppPanel = New-Object System.Windows.Controls.StackPanel
 
@@ -357,6 +766,7 @@ $Content.Children.Add($AppPanel)
 # ==========================================
 
 function Show-Applications {
+
     param (
         [string]$Category = "All"
     )
@@ -374,6 +784,7 @@ function Show-Applications {
         # ==========================================
 
         $Card = New-Object System.Windows.Controls.Border
+
         $Card.Background = "White"
         $Card.BorderBrush = "#DDDDDD"
         $Card.BorderThickness = "1"
@@ -408,7 +819,7 @@ function Show-Applications {
         $AppDescription.Margin = "0,5,0,0"
 
         $VersionInfo = New-Object System.Windows.Controls.TextBlock
-        $VersionInfo.Text = "Versio: $($App.version)"
+        $VersionInfo.Text = "Version: $($App.version)"
         $VersionInfo.Foreground = "#888888"
         $VersionInfo.FontSize = 12
         $VersionInfo.Margin = "0,6,0,0"
@@ -417,7 +828,10 @@ function Show-Applications {
         $Info.Children.Add($AppDescription)
         $Info.Children.Add($VersionInfo)
 
-        [System.Windows.Controls.Grid]::SetColumn($Info, 0)
+        [System.Windows.Controls.Grid]::SetColumn(
+            $Info,
+            0
+        )
 
         # ==========================================
         # Install button
@@ -426,10 +840,12 @@ function Show-Applications {
         $InstallButton = New-Object System.Windows.Controls.Button
 
         if ($App.installerType -eq "website") {
-            $InstallButton.Content = "LATAUSSIVU"
+
+            $InstallButton.Content = "DOWNLOAD"
         }
         else {
-            $InstallButton.Content = "ASENNA"
+
+            $InstallButton.Content = "INSTALL"
         }
 
         $InstallButton.Width = 100
@@ -448,56 +864,97 @@ function Show-Applications {
 
                 if ($CurrentApp.installerType -eq "website") {
 
-                    $CurrentButton.Content = "AVATAAN..."
+                    $CurrentButton.Content = "OPENING..."
 
-                    $Result = Install-Application -App $CurrentApp
+                    $CurrentStatusText.Text = `
+                        "Opening download page..."
 
-                    $CurrentButton.Content = "LATAUSSIVU"
+                    $Result = Install-Application `
+                        -App $CurrentApp
+
+                    $CurrentButton.Content = "DOWNLOAD"
                     $CurrentButton.IsEnabled = $true
 
+                    $CurrentStatusText.Text = "Ready"
                 }
                 else {
 
-                    $CurrentButton.Content = "LADATAAN..."
+                    $CurrentButton.Content = "INSTALLING..."
 
-                    $Result = Install-Application -App $CurrentApp
+                    $Result = Install-Application `
+                        -App $CurrentApp
+
+                    # ==========================================
+                    # Installation successful
+                    # ==========================================
+
+                    $CurrentProgressBar.IsIndeterminate = $false
+                    $CurrentProgressBar.Value = 100
+
+                    $CurrentProgressText.Text = "100 %"
+
+                    $CurrentSizeText.Text = ""
+                    $CurrentSpeedText.Text = ""
+
+                    # Make progress bar green
+                    $CurrentProgressBar.Foreground = `
+                        [System.Windows.Media.Brushes]::Green
+
+                    $CurrentStatusText.Text = `
+                        "Installation complete"
+
+                    $CurrentButton.Content = "INSTALLED"
 
                     if ($Result.RestartRequired) {
 
-                        $CurrentButton.Content = "ASENNETTU"
-
                         [System.Windows.MessageBox]::Show(
-                            "$($CurrentApp.name) asennettiin onnistuneesti.`n`nWindowsin uudelleenkäynnistys voidaan tarvita.",
+                            "$($CurrentApp.name) was installed successfully.`n`nA Windows restart may be required.",
                             "EduDeploy v$Version"
                         )
-
                     }
                     else {
 
-                        $CurrentButton.Content = "ASENNETTU"
-
                         [System.Windows.MessageBox]::Show(
-                            "$($CurrentApp.name) asennettiin onnistuneesti.",
+                            "$($CurrentApp.name) was installed successfully.",
                             "EduDeploy v$Version"
                         )
                     }
                 }
-
             }
             catch {
 
-                $CurrentButton.Content = "ASENNA"
+                # ==========================================
+                # Installation failed
+                # ==========================================
+
+                $CurrentButton.Content = "INSTALL"
                 $CurrentButton.IsEnabled = $true
 
+                $CurrentStatusText.Text = `
+                    "Installation failed"
+
+                $CurrentProgressBar.IsIndeterminate = $false
+                $CurrentProgressBar.Value = 0
+
+                $CurrentProgressBar.Foreground = `
+                    [System.Windows.Media.Brushes]::Gray
+
+                $CurrentProgressText.Text = "0 %"
+                $CurrentSpeedText.Text = ""
+                $CurrentSizeText.Text = ""
+
                 [System.Windows.MessageBox]::Show(
-                    "$($CurrentApp.name) asennus epäonnistui.`n`n$($_.Exception.Message)",
+                    "$($CurrentApp.name) installation failed.`n`n$($_.Exception.Message)",
                     "EduDeploy v$Version"
                 )
             }
 
         }.GetNewClosure())
 
-        [System.Windows.Controls.Grid]::SetColumn($InstallButton, 1)
+        [System.Windows.Controls.Grid]::SetColumn(
+            $InstallButton,
+            1
+        )
 
         $CardGrid.Children.Add($Info)
         $CardGrid.Children.Add($InstallButton)
@@ -513,14 +970,17 @@ function Show-Applications {
 # ==========================================
 
 $AllButton.Add_Click({
+
     Show-Applications -Category "All"
 })
 
 $ThreeDButton.Add_Click({
+
     Show-Applications -Category "3D"
 })
 
 $CadButton.Add_Click({
+
     Show-Applications -Category "CAD"
 })
 

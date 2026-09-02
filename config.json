@@ -2,7 +2,7 @@
   "applications": [
     {
       "name": "Blender",
-      "description": "3D-mallinnus, animaatio ja renderöinti",
+      "description": "3D modeling, animation and rendering",
       "category": "3D",
       "version": "4.5.13",
       "downloadUrl": "https://download.blender.org/release/Blender4.5/blender-4.5.13-windows-x64.msi",
@@ -12,7 +12,7 @@
     },
     {
       "name": "Autodesk Fusion",
-      "description": "CAD-suunnittelu ja 3D-mallinnus",
+      "description": "CAD design and 3D modeling",
       "category": "CAD",
       "version": "2026",
       "downloadUrl": "https://www.autodesk.com/products/fusion-360/",
@@ -22,7 +22,7 @@
     },
     {
       "name": "Rhino",
-      "description": "3D-mallinnus, suunnittelu ja visualisointi",
+      "description": "3D modeling, design and visualization",
       "category": "3D",
       "version": "8",
       "downloadUrl": "https://www.rhino3d.com/download/",
@@ -32,7 +32,7 @@
     },
     {
       "name": "SolidWorks",
-      "description": "3D-CAD-suunnittelu ja koneenrakennus",
+      "description": "3D CAD design and engineering",
       "category": "CAD",
       "version": "2026",
       "downloadUrl": "https://www.solidworks.com/",
