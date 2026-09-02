@@ -2,6 +2,18 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+$ErrorActionPreference = "Stop"
+
+# ==========================================
+# EduDeploy v0.1
+# ==========================================
+
+$Version = "0.1"
+
+# ==========================================
+# Load configuration
+# ==========================================
+
 $ConfigPath = Join-Path $PSScriptRoot "config.json"
 
 if (-not (Test-Path $ConfigPath)) {
@@ -12,154 +24,276 @@ if (-not (Test-Path $ConfigPath)) {
     exit
 }
 
-$config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-
-# -----------------------------
-# Window
-# -----------------------------
-
-$window = New-Object System.Windows.Window
-$window.Title = "EduDeploy"
-$window.Width = 900
-$window.Height = 600
-$window.WindowStartupLocation = "CenterScreen"
-$window.ResizeMode = "CanResize"
-
-# -----------------------------
-# Main layout
-# -----------------------------
-
-$mainGrid = New-Object System.Windows.Controls.Grid
-
-$column1 = New-Object System.Windows.Controls.ColumnDefinition
-$column1.Width = "220"
-
-$column2 = New-Object System.Windows.Controls.ColumnDefinition
-$column2.Width = "*"
-
-$mainGrid.ColumnDefinitions.Add($column1)
-$mainGrid.ColumnDefinitions.Add($column2)
-
-# -----------------------------
-# Sidebar
-# -----------------------------
-
-$sidebar = New-Object System.Windows.Controls.StackPanel
-$sidebar.Margin = "20"
-
-[System.Windows.Controls.Grid]::SetColumn($sidebar, 0)
-
-$title = New-Object System.Windows.Controls.TextBlock
-$title.Text = "EduDeploy"
-$title.FontSize = 28
-$title.FontWeight = "Bold"
-$title.Margin = "0,0,0,5"
-
-$subtitle = New-Object System.Windows.Controls.TextBlock
-$subtitle.Text = "3D Software Installer"
-$subtitle.FontSize = 13
-$subtitle.Margin = "0,0,0,30"
-
-$appsButton = New-Object System.Windows.Controls.Button
-$appsButton.Content = "3D-ohjelmat"
-$appsButton.Height = 40
-$appsButton.Margin = "0,0,0,10"
-
-$settingsButton = New-Object System.Windows.Controls.Button
-$settingsButton.Content = "Asetukset"
-$settingsButton.Height = 40
-
-$sidebar.Children.Add($title)
-$sidebar.Children.Add($subtitle)
-$sidebar.Children.Add($appsButton)
-$sidebar.Children.Add($settingsButton)
-
-# -----------------------------
-# Content
-# -----------------------------
-
-$content = New-Object System.Windows.Controls.StackPanel
-$content.Margin = "20"
-
-[System.Windows.Controls.Grid]::SetColumn($content, 1)
-
-$header = New-Object System.Windows.Controls.TextBlock
-$header.Text = "3D-ohjelmistot"
-$header.FontSize = 26
-$header.FontWeight = "Bold"
-$header.Margin = "0,0,0,20"
-
-$content.Children.Add($header)
-
-foreach ($app in $config.applications) {
-
-    $border = New-Object System.Windows.Controls.Border
-    $border.BorderThickness = "1"
-    $border.Padding = "15"
-    $border.Margin = "0,0,0,12"
-
-    $grid = New-Object System.Windows.Controls.Grid
-
-    $nameColumn = New-Object System.Windows.Controls.ColumnDefinition
-    $nameColumn.Width = "*"
-
-    $buttonColumn = New-Object System.Windows.Controls.ColumnDefinition
-    $buttonColumn.Width = "120"
-
-    $grid.ColumnDefinitions.Add($nameColumn)
-    $grid.ColumnDefinitions.Add($buttonColumn)
-
-    # App information
-    $info = New-Object System.Windows.Controls.StackPanel
-
-    $name = New-Object System.Windows.Controls.TextBlock
-    $name.Text = $app.name
-    $name.FontSize = 18
-    $name.FontWeight = "Bold"
-
-    $description = New-Object System.Windows.Controls.TextBlock
-    $description.Text = $app.description
-    $description.Margin = "0,5,0,0"
-
-    $info.Children.Add($name)
-    $info.Children.Add($description)
-
-    [System.Windows.Controls.Grid]::SetColumn($info, 0)
-
-    # Install button
-    $installButton = New-Object System.Windows.Controls.Button
-    $installButton.Content = "ASENNA"
-    $installButton.Width = 100
-    $installButton.Height = 35
-
-    [System.Windows.Controls.Grid]::SetColumn($installButton, 1)
-
-    $appName = $app.name
-
-    $installButton.Add_Click({
-
-        [System.Windows.MessageBox]::Show(
-            "Tässä vaiheessa $appName asennus on vielä testitilassa.",
-            "EduDeploy v0.1"
-        )
-
-    })
-
-    $grid.Children.Add($info)
-    $grid.Children.Add($installButton)
-
-    $border.Child = $grid
-
-    $content.Children.Add($border)
+try {
+    $Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+}
+catch {
+    [System.Windows.MessageBox]::Show(
+        "config.json-tiedoston lukeminen epäonnistui.`n`n$($_.Exception.Message)",
+        "EduDeploy"
+    )
+    exit
 }
 
-$mainGrid.Children.Add($sidebar)
-$mainGrid.Children.Add($content)
+# ==========================================
+# Main Window
+# ==========================================
 
-$window.Content = $mainGrid
+$Window = New-Object System.Windows.Window
 
-# -----------------------------
+$Window.Title = "EduDeploy"
+$Window.Width = 1000
+$Window.Height = 650
+$Window.MinWidth = 800
+$Window.MinHeight = 500
+$Window.WindowStartupLocation = "CenterScreen"
+$Window.Background = "#F5F5F5"
+
+# ==========================================
+# Main Grid
+# ==========================================
+
+$MainGrid = New-Object System.Windows.Controls.Grid
+
+# Sidebar
+$SidebarColumn = New-Object System.Windows.Controls.ColumnDefinition
+$SidebarColumn.Width = "230"
+
+# Content
+$ContentColumn = New-Object System.Windows.Controls.ColumnDefinition
+$ContentColumn.Width = "*"
+
+$MainGrid.ColumnDefinitions.Add($SidebarColumn)
+$MainGrid.ColumnDefinitions.Add($ContentColumn)
+
+# ==========================================
+# Sidebar
+# ==========================================
+
+$Sidebar = New-Object System.Windows.Controls.StackPanel
+$Sidebar.Margin = "20"
+
+[System.Windows.Controls.Grid]::SetColumn($Sidebar, 0)
+
+# Logo / title
+
+$Logo = New-Object System.Windows.Controls.TextBlock
+$Logo.Text = "EduDeploy"
+$Logo.FontSize = 30
+$Logo.FontWeight = "Bold"
+$Logo.Margin = "0,5,0,0"
+
+$Sidebar.Children.Add($Logo)
+
+$Subtitle = New-Object System.Windows.Controls.TextBlock
+$Subtitle.Text = "3D Software Installer"
+$Subtitle.FontSize = 13
+$Subtitle.Foreground = "#666666"
+$Subtitle.Margin = "0,2,0,35"
+
+$Sidebar.Children.Add($Subtitle)
+
+# Navigation title
+
+$NavigationTitle = New-Object System.Windows.Controls.TextBlock
+$NavigationTitle.Text = "KATEGORIAT"
+$NavigationTitle.FontSize = 11
+$NavigationTitle.FontWeight = "Bold"
+$NavigationTitle.Foreground = "#777777"
+$NavigationTitle.Margin = "0,0,0,10"
+
+$Sidebar.Children.Add($NavigationTitle)
+
+# Buttons
+
+$AllButton = New-Object System.Windows.Controls.Button
+$AllButton.Content = "Kaikki ohjelmat"
+$AllButton.Height = 40
+$AllButton.HorizontalContentAlignment = "Left"
+$AllButton.Padding = "15,0"
+$AllButton.Margin = "0,0,0,6"
+
+$ThreeDButton = New-Object System.Windows.Controls.Button
+$ThreeDButton.Content = "3D"
+$ThreeDButton.Height = 40
+$ThreeDButton.HorizontalContentAlignment = "Left"
+$ThreeDButton.Padding = "15,0"
+$ThreeDButton.Margin = "0,0,0,6"
+
+$CadButton = New-Object System.Windows.Controls.Button
+$CadButton.Content = "CAD"
+$CadButton.Height = 40
+$CadButton.HorizontalContentAlignment = "Left"
+$CadButton.Padding = "15,0"
+$CadButton.Margin = "0,0,0,6"
+
+$Sidebar.Children.Add($AllButton)
+$Sidebar.Children.Add($ThreeDButton)
+$Sidebar.Children.Add($CadButton)
+
+# Bottom version
+
+$VersionText = New-Object System.Windows.Controls.TextBlock
+$VersionText.Text = "EduDeploy v$Version"
+$VersionText.Foreground = "#888888"
+$VersionText.Margin = "0,35,0,0"
+
+$Sidebar.Children.Add($VersionText)
+
+# ==========================================
+# Content area
+# ==========================================
+
+$Content = New-Object System.Windows.Controls.StackPanel
+$Content.Margin = "30"
+
+[System.Windows.Controls.Grid]::SetColumn($Content, 1)
+
+# Header
+
+$Header = New-Object System.Windows.Controls.TextBlock
+$Header.Text = "3D-ohjelmistot"
+$Header.FontSize = 28
+$Header.FontWeight = "Bold"
+$Header.Margin = "0,0,0,5"
+
+$Content.Children.Add($Header)
+
+$DescriptionHeader = New-Object System.Windows.Controls.TextBlock
+$DescriptionHeader.Text = "Asenna tarvitsemasi ohjelmistot yhdestä paikasta."
+$DescriptionHeader.Foreground = "#666666"
+$DescriptionHeader.Margin = "0,0,0,25"
+
+$Content.Children.Add($DescriptionHeader)
+
+# ==========================================
+# Application container
+# ==========================================
+
+$AppPanel = New-Object System.Windows.Controls.StackPanel
+
+$Content.Children.Add($AppPanel)
+
+# ==========================================
+# Application rendering
+# ==========================================
+
+function Show-Applications {
+    param (
+        [string]$Category = "All"
+    )
+
+    $AppPanel.Children.Clear()
+
+    foreach ($App in $Config.applications) {
+
+        if ($Category -ne "All" -and $App.category -ne $Category) {
+            continue
+        }
+
+        # Card
+        $Card = New-Object System.Windows.Controls.Border
+        $Card.Background = "White"
+        $Card.BorderBrush = "#DDDDDD"
+        $Card.BorderThickness = "1"
+        $Card.Padding = "18"
+        $Card.Margin = "0,0,0,12"
+
+        # Card grid
+        $CardGrid = New-Object System.Windows.Controls.Grid
+
+        $InfoColumn = New-Object System.Windows.Controls.ColumnDefinition
+        $InfoColumn.Width = "*"
+
+        $ButtonColumn = New-Object System.Windows.Controls.ColumnDefinition
+        $ButtonColumn.Width = "120"
+
+        $CardGrid.ColumnDefinitions.Add($InfoColumn)
+        $CardGrid.ColumnDefinitions.Add($ButtonColumn)
+
+        # Information
+
+        $Info = New-Object System.Windows.Controls.StackPanel
+
+        $Name = New-Object System.Windows.Controls.TextBlock
+        $Name.Text = $App.name
+        $Name.FontSize = 19
+        $Name.FontWeight = "Bold"
+
+        $AppDescription = New-Object System.Windows.Controls.TextBlock
+        $AppDescription.Text = $App.description
+        $AppDescription.Foreground = "#666666"
+        $AppDescription.Margin = "0,5,0,0"
+
+        $Info.Children.Add($Name)
+        $Info.Children.Add($AppDescription)
+
+        [System.Windows.Controls.Grid]::SetColumn($Info, 0)
+
+        # Install button
+
+        $InstallButton = New-Object System.Windows.Controls.Button
+        $InstallButton.Content = "ASENNA"
+        $InstallButton.Width = 100
+        $InstallButton.Height = 38
+        $InstallButton.VerticalAlignment = "Center"
+        $InstallButton.HorizontalAlignment = "Right"
+
+        $ApplicationName = $App.name
+
+        $InstallButton.Add_Click({
+
+            [System.Windows.MessageBox]::Show(
+                "Asennus testitilassa.`n`nOhjelma: $ApplicationName",
+                "EduDeploy v$Version"
+            )
+
+        }.GetNewClosure())
+
+        [System.Windows.Controls.Grid]::SetColumn($InstallButton, 1)
+
+        $CardGrid.Children.Add($Info)
+        $CardGrid.Children.Add($InstallButton)
+
+        $Card.Child = $CardGrid
+
+        $AppPanel.Children.Add($Card)
+    }
+}
+
+# ==========================================
+# Navigation events
+# ==========================================
+
+$AllButton.Add_Click({
+    Show-Applications -Category "All"
+})
+
+$ThreeDButton.Add_Click({
+    Show-Applications -Category "3D"
+})
+
+$CadButton.Add_Click({
+    Show-Applications -Category "CAD"
+})
+
+# ==========================================
+# Assemble window
+# ==========================================
+
+$MainGrid.Children.Add($Sidebar)
+$MainGrid.Children.Add($Content)
+
+$Window.Content = $MainGrid
+
+# ==========================================
+# Initial view
+# ==========================================
+
+Show-Applications -Category "All"
+
+# ==========================================
 # Start
-# -----------------------------
+# ==========================================
 
-$window.ShowDialog() | Out-Null
+$Window.ShowDialog() | Out-Null
