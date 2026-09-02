@@ -3,22 +3,42 @@
     {
       "name": "Blender",
       "description": "3D-mallinnus, animaatio ja renderöinti",
-      "category": "3D"
+      "category": "3D",
+      "version": "4.5.13",
+      "downloadUrl": "https://download.blender.org/release/Blender4.5/blender-4.5.13-windows-x64.msi",
+      "installerType": "msi",
+      "installerArguments": "/qn /norestart",
+      "installedCheck": "blender.exe"
     },
     {
       "name": "Autodesk Fusion",
       "description": "CAD-suunnittelu ja 3D-mallinnus",
-      "category": "CAD"
+      "category": "CAD",
+      "version": "2026",
+      "downloadUrl": "https://www.autodesk.com/products/fusion-360/",
+      "website": "https://www.autodesk.com/products/fusion-360/",
+      "publisher": "Autodesk",
+      "installedCheck": "Fusion360.exe"
     },
     {
       "name": "Rhino",
-      "description": "3D-mallinnus ja suunnittelu",
-      "category": "3D"
+      "description": "3D-mallinnus, suunnittelu ja visualisointi",
+      "category": "3D",
+      "version": "8",
+      "downloadUrl": "https://www.rhino3d.com/download/",
+      "website": "https://www.rhino3d.com/",
+      "publisher": "McNeel",
+      "installedCheck": "Rhino.exe"
     },
     {
       "name": "SolidWorks",
-      "description": "CAD-suunnittelu ja koneenrakennus",
-      "category": "CAD"
+      "description": "3D-CAD-suunnittelu ja koneenrakennus",
+      "category": "CAD",
+      "version": "2026",
+      "downloadUrl": "https://www.solidworks.com/",
+      "website": "https://www.solidworks.com/",
+      "publisher": "Dassault Systèmes",
+      "installedCheck": "SLDWORKS.exe"
     }
   ]
 }

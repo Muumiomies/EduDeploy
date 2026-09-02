@@ -5,10 +5,10 @@ Add-Type -AssemblyName WindowsBase
 $ErrorActionPreference = "Stop"
 
 # ==========================================
-# EduDeploy v0.1
+# EduDeploy v0.2
 # ==========================================
 
-$Version = "0.1"
+$Version = "0.2"
 
 # ==========================================
 # Load configuration
@@ -230,7 +230,9 @@ function Show-Applications {
 
         [System.Windows.Controls.Grid]::SetColumn($Info, 0)
 
+        # ==========================================
         # Install button
+        # ==========================================
 
         $InstallButton = New-Object System.Windows.Controls.Button
         $InstallButton.Content = "ASENNA"
@@ -239,14 +241,135 @@ function Show-Applications {
         $InstallButton.VerticalAlignment = "Center"
         $InstallButton.HorizontalAlignment = "Right"
 
-        $ApplicationName = $App.name
-
         $InstallButton.Add_Click({
 
-            [System.Windows.MessageBox]::Show(
-                "Asennus testitilassa.`n`nOhjelma: $ApplicationName",
-                "EduDeploy v$Version"
-            )
+            $ApplicationName = $App.name
+
+            # ==========================================
+            # Blender
+            # ==========================================
+
+            if ($ApplicationName -eq "Blender") {
+
+                try {
+
+                    $InstallButton.Content = "LADATAAN..."
+                    $InstallButton.IsEnabled = $false
+
+                    # Temp-kansio
+                    $TempDir = Join-Path $env:TEMP "EduDeploy"
+
+                    if (-not (Test-Path $TempDir)) {
+                        New-Item `
+                            -ItemType Directory `
+                            -Path $TempDir `
+                            -Force | Out-Null
+                    }
+
+                    # MSI-tiedosto
+                    $InstallerPath = Join-Path $TempDir "blender.msi"
+
+                    # MSI-loki
+                    $LogPath = Join-Path $TempDir "blender-install.log"
+
+                    # Poistetaan vanhat tiedostot
+                    if (Test-Path $InstallerPath) {
+                        Remove-Item $InstallerPath -Force
+                    }
+
+                    if (Test-Path $LogPath) {
+                        Remove-Item $LogPath -Force
+                    }
+
+                    # ==========================================
+                    # Download
+                    # ==========================================
+
+                    Invoke-WebRequest `
+                        -Uri $App.downloadUrl `
+                        -OutFile $InstallerPath
+
+                    # Tarkista että tiedosto löytyy
+                    if (-not (Test-Path $InstallerPath)) {
+                        throw "Blenderin lataus epäonnistui."
+                    }
+
+                    # Tarkista MSI:n koko
+                    $FileSize = (Get-Item $InstallerPath).Length
+
+                    if ($FileSize -lt 10MB) {
+                        throw "Blenderin MSI-tiedosto näyttää liian pieneltä. Lataus saattaa olla epäonnistunut."
+                    }
+
+                    # ==========================================
+                    # Install
+                    # ==========================================
+
+                    $InstallButton.Content = "ASENNETAAN..."
+
+                    $Process = Start-Process `
+                        -FilePath "msiexec.exe" `
+                        -ArgumentList "/i `"$InstallerPath`" /qn /norestart /L*v `"$LogPath`"" `
+                        -WorkingDirectory $TempDir `
+                        -Verb RunAs `
+                        -Wait `
+                        -PassThru
+
+                    # ==========================================
+                    # Result
+                    # ==========================================
+
+                    if ($Process.ExitCode -eq 0) {
+
+                        $InstallButton.Content = "ASENNETTU"
+
+                        [System.Windows.MessageBox]::Show(
+                            "Blender asennettiin onnistuneesti.",
+                            "EduDeploy v$Version"
+                        )
+
+                    }
+                    elseif ($Process.ExitCode -eq 3010) {
+
+                        $InstallButton.Content = "ASENNETTU"
+
+                        [System.Windows.MessageBox]::Show(
+                            "Blender asennettiin onnistuneesti.`n`nWindowsin uudelleenkäynnistys voidaan tarvita.",
+                            "EduDeploy v$Version"
+                        )
+
+                    }
+                    else {
+
+                        throw "Asennus epäonnistui.`n`nMSI-palautuskoodi: $($Process.ExitCode)`n`nLokitiedosto:`n$LogPath"
+                    }
+
+                }
+                catch {
+
+                    $InstallButton.Content = "ASENNA"
+                    $InstallButton.IsEnabled = $true
+
+                    [System.Windows.MessageBox]::Show(
+                        "Blenderin asennus epäonnistui.`n`n$($_.Exception.Message)",
+                        "EduDeploy v$Version"
+                    )
+                }
+
+            }
+
+            # ==========================================
+            # Other applications
+            # ==========================================
+
+            else {
+
+                [System.Windows.MessageBox]::Show(
+                    "Asennus testitilassa.`n`nOhjelma: $ApplicationName",
+                    "EduDeploy v$Version"
+                )
+
+            }
 
         }.GetNewClosure())
 
