@@ -170,6 +170,6 @@ EduDeploy asentaa ohjelman
 Valmis
 ```
 
-## 📄 Lisenssi
+## 📄 License
 
-Projektin lisenssi määritellään myöhemmin.
+License: All rights reserved. The source code is publicly available for viewing and educational purposes. Redistribution, modification or commercial use is not permitted without permission from the author.
