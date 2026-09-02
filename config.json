@@ -1,0 +1,19 @@
+{
+  "applications": [
+    {
+      "name": "Blender",
+      "description": "3D-mallinnus ja renderöinti",
+      "category": "3D"
+    },
+    {
+      "name": "Autodesk Fusion",
+      "description": "CAD-suunnittelu ja 3D-mallinnus",
+      "category": "CAD"
+    },
+    {
+      "name": "Rhino",
+      "description": "3D-mallinnus ja suunnittelu",
+      "category": "3D"
+    }
+  ]
+}
